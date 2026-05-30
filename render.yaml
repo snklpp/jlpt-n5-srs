@@ -1,0 +1,17 @@
+# Render Blueprint — deploys the app as a free Static Site.
+# In Render: New ▸ Blueprint, point it at this repo, and it reads this file.
+services:
+  - type: web
+    name: jlpt-n5-srs
+    runtime: static
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    pullRequestPreviewsEnabled: false
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: no-cache
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
