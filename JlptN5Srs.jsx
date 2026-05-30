@@ -152,41 +152,62 @@ const todayStr = (now) => {
 };
 
 /* ============================ palette / css =============================== */
+/* Colours are CSS variables so a single [data-theme] attribute flips the app.
+   C maps token names -> var() refs, keeping the rest of the code unchanged. */
 const C = {
-  bg0: "#0f1117",
-  bg1: "#171a23",
-  bg2: "#1e222e",
-  line: "rgba(255,255,255,0.08)",
-  line2: "rgba(255,255,255,0.13)",
-  ink: "#edeff5",
-  sub: "#9aa1b2",
-  faint: "#646c80",
-  seal: "#e3503a",
-  gold: "#e8b65a",
-  again: "#e2574f",
-  hard: "#e7e9f0",
-  good: "#48c98b",
-  easy: "#5b9cf0",
-  learn: "#e89a4a",
+  bg0: "var(--bg0)",
+  bg1: "var(--bg1)",
+  bg2: "var(--bg2)",
+  line: "var(--line)",
+  line2: "var(--line2)",
+  ink: "var(--ink)",
+  sub: "var(--sub)",
+  faint: "var(--faint)",
+  seal: "var(--seal)",
+  gold: "var(--gold)",
+  again: "var(--again)",
+  hard: "var(--hard)",
+  good: "var(--good)",
+  easy: "var(--easy)",
+  learn: "var(--learn)",
 };
+const THEME_BG = { dark: "#0f1117", light: "#f4f1ea" }; // for the browser theme-color meta
 const FJP = "'Zen Maru Gothic', sans-serif";
 const FDISP = "'Zen Kaku Gothic New', sans-serif";
 
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700;900&family=Zen+Maru+Gothic:wght@400;500;700&display=swap');
+:root{
+  --bg0:#0f1117; --bg1:#171a23; --bg2:#1e222e;
+  --line:rgba(255,255,255,0.08); --line2:rgba(255,255,255,0.13);
+  --ink:#edeff5; --sub:#9aa1b2; --faint:#646c80;
+  --seal:#e3503a; --gold:#e8b65a;
+  --again:#e2574f; --hard:#e7e9f0; --good:#48c98b; --easy:#5b9cf0; --learn:#e89a4a;
+  --glow:rgba(42,33,80,0.50);
+}
+:root[data-theme="light"]{
+  --bg0:#f4f1ea; --bg1:#ffffff; --bg2:#efeae0;
+  --line:rgba(24,18,10,0.10); --line2:rgba(24,18,10,0.17);
+  --ink:#23262e; --sub:#5c6271; --faint:#949aa8;
+  --seal:#cf4327; --gold:#b07d1e;
+  --again:#d6453d; --hard:#3a3f4b; --good:#1ea672; --easy:#2f7fe0; --learn:#c9792a;
+  --glow:rgba(232,182,90,0.16);
+}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
-html,body{height:100%;margin:0;background:${C.bg0};}
+html,body{height:100%;margin:0;background:var(--bg0);overscroll-behavior:none;}
+body{-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:manipulation;-webkit-user-select:none;user-select:none;}
+input,textarea{-webkit-user-select:text;user-select:text;}
 .n5-scroll::-webkit-scrollbar{width:0;height:0;}
-.n5-scroll{scrollbar-width:none;-ms-overflow-style:none;}
-ruby rt{font-size:.52em;color:${C.gold};font-weight:500;line-height:1;margin-bottom:.06em;}
+.n5-scroll{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;}
+ruby rt{font-size:.52em;color:var(--gold);font-weight:500;line-height:1;margin-bottom:.06em;}
 @keyframes n5toast{0%{opacity:0;transform:translate(-50%,8px)}14%{opacity:1;transform:translate(-50%,0)}80%{opacity:1;transform:translate(-50%,0)}100%{opacity:0;transform:translate(-50%,-4px)}}
 @keyframes n5in{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
 @keyframes n5pop{0%{transform:scale(.96);opacity:.4}100%{transform:scale(1);opacity:1}}
 `;
 
-function hexA(hex, a) {
-  const n = parseInt(hex.slice(1), 16);
-  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+/* translucent colour from any CSS colour (incl. var()) — theme-safe */
+function hexA(color, a) {
+  return `color-mix(in srgb, ${color} ${Math.round(a * 100)}%, transparent)`;
 }
 
 /* ===================== mnemonic w/ ruby furigana ========================== */
@@ -279,6 +300,9 @@ function fallbackCopy(t) {
     ta.style.position = "fixed";
     ta.style.top = "-9999px";
     ta.style.opacity = "0";
+    ta.style.webkitUserSelect = "text"; // body sets user-select:none for app feel
+    ta.style.userSelect = "text";
+    ta.setAttribute("readonly", "");
     document.body.appendChild(ta);
     ta.focus();
     ta.select();
@@ -304,6 +328,8 @@ export default function JlptN5Srs() {
   const [sched, setSched] = useState({});
   const [daily, setDaily] = useState({ date: todayStr(Date.now()), newDone: 0, reviewsToday: 0, extraNew: 0 });
   const [settings, setSettings] = useState({ direction: "jp", newPerDay: 15 });
+  const [theme, setTheme] = useState("dark"); // 'dark' | 'light' | 'auto'
+  const [sysLight, setSysLight] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [cur, setCur] = useState(null); // {id,isNew,dir}
   const [revealed, setRevealed] = useState(false);
@@ -315,22 +341,55 @@ export default function JlptN5Srs() {
   const [confirmReset, setConfirmReset] = useState(false);
   const toastTimer = useRef(null);
 
-  /* ---- load once ---- */
+  /* ---- load once (restore progress + last screen + theme) ---- */
   useEffect(() => {
     (async () => {
       const s = await loadState();
       if (s) {
         if (s.sched) setSched(s.sched);
         if (s.settings) setSettings((p) => ({ ...p, ...s.settings }));
+        if (s.theme) setTheme(s.theme);
         if (s.daily) {
           const d = s.daily;
           if (d.date !== todayStr(Date.now())) setDaily({ date: todayStr(Date.now()), newDone: 0, reviewsToday: 0, extraNew: 0 });
           else setDaily({ extraNew: 0, ...d });
         }
+        // restore the screen the user was last on
+        if (s.scope) setScope(s.scope);
+        if (s.view === "study") {
+          setView("study");
+          if (s.cur && CARD_BY_ID[s.cur.id]) {
+            setCur(s.cur);
+            setRevealed(!!s.revealed);
+          }
+        }
       }
       setReady(true);
     })();
   }, []);
+
+  /* ---- system colour-scheme (for theme:'auto') ---- */
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(prefers-color-scheme: light)");
+    const on = () => setSysLight(!!mq.matches);
+    on();
+    if (mq.addEventListener) mq.addEventListener("change", on);
+    else if (mq.addListener) mq.addListener(on);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener("change", on);
+      else if (mq.removeListener) mq.removeListener(on);
+    };
+  }, []);
+
+  /* ---- apply theme to <html> + browser chrome ---- */
+  const effTheme = theme === "auto" ? (sysLight ? "light" : "dark") : theme;
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.documentElement.setAttribute("data-theme", effTheme);
+    const m = document.querySelector('meta[name="theme-color"]');
+    if (m) m.setAttribute("content", THEME_BG[effTheme] || THEME_BG.dark);
+  }, [effTheme]);
 
   /* ---- clock tick ---- */
   useEffect(() => {
@@ -345,11 +404,11 @@ export default function JlptN5Srs() {
     if (daily.date !== t) setDaily({ date: t, newDone: 0, reviewsToday: 0, extraNew: 0 });
   }, [now, ready, daily.date]);
 
-  /* ---- persist ---- */
+  /* ---- persist progress + last screen + theme ---- */
   useEffect(() => {
     if (!ready) return;
-    saveState({ v: 1, sched, daily, settings });
-  }, [sched, daily, settings, ready]);
+    saveState({ v: 1, sched, daily, settings, theme, view, scope, cur, revealed });
+  }, [sched, daily, settings, theme, view, scope, cur, revealed, ready]);
 
   /* ---- scope cards ---- */
   const scopeCards = useMemo(
@@ -609,6 +668,8 @@ export default function JlptN5Srs() {
           <SettingsSheet
             settings={settings}
             setSettings={setSettings}
+            theme={theme}
+            setTheme={setTheme}
             stats={stats}
             daily={daily}
             confirmReset={confirmReset}
@@ -819,7 +880,7 @@ export default function JlptN5Srs() {
                       height: "100%",
                       border: "none",
                       borderLeft: i === 0 ? "none" : "1px solid " + C.line,
-                      background: activeGrade === b.g ? hexA(b.color === C.hard ? "#ffffff" : b.color, 0.16) : "transparent",
+                      background: activeGrade === b.g ? hexA(b.color, 0.18) : "transparent",
                       display: "flex",
                       flexDirection: "column",
                       alignItems: "center",
@@ -829,7 +890,7 @@ export default function JlptN5Srs() {
                       transition: "background .08s",
                     }}
                   >
-                    <span style={{ fontSize: 11.5, color: hexA(b.color === C.hard ? "#ffffff" : b.color, 0.8), fontVariantNumeric: "tabular-nums", fontFamily: FJP }}>
+                    <span style={{ fontSize: 11.5, color: hexA(b.color, 0.85), fontVariantNumeric: "tabular-nums", fontFamily: FJP }}>
                       {span}
                     </span>
                     <span style={{ fontSize: 16, fontWeight: 700, color: b.color, fontFamily: FDISP, letterSpacing: 0.2 }}>
@@ -917,6 +978,8 @@ export default function JlptN5Srs() {
         <SettingsSheet
           settings={settings}
           setSettings={setSettings}
+          theme={theme}
+          setTheme={setTheme}
           stats={stats}
           daily={daily}
           confirmReset={confirmReset}
@@ -951,7 +1014,7 @@ function Shell({ children }) {
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
-        background: `radial-gradient(120% 60% at 50% -10%, ${hexA("#2a2150", 0.5)}, transparent 60%), ${C.bg0}`,
+        background: `radial-gradient(120% 60% at 50% -10%, var(--glow), transparent 60%), ${C.bg0}`,
         color: C.ink,
         position: "relative",
         paddingTop: "env(safe-area-inset-top)",
@@ -1095,7 +1158,7 @@ function CopyTarget({ children, onTap, active, flash, center }) {
   );
 }
 
-function SettingsSheet({ settings, setSettings, stats, daily, confirmReset, setConfirmReset, onReset, onClose }) {
+function SettingsSheet({ settings, setSettings, theme, setTheme, stats, daily, confirmReset, setConfirmReset, onReset, onClose }) {
   const dirs = [
     { v: "jp", t: "JP → EN", d: "see the word, recall the meaning" },
     { v: "en", t: "EN → JP", d: "see the meaning, recall the word" },
@@ -1125,6 +1188,34 @@ function SettingsSheet({ settings, setSettings, stats, daily, confirmReset, setC
       >
         <div style={{ width: 38, height: 4, background: C.line2, borderRadius: 4, margin: "6px auto 16px" }} />
         <div style={{ fontFamily: FDISP, fontWeight: 800, fontSize: 19, marginBottom: 18 }}>Settings</div>
+
+        <Label>Appearance</Label>
+        <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+          {[
+            { v: "dark", t: "Dark" },
+            { v: "light", t: "Light" },
+            { v: "auto", t: "Auto" },
+          ].map((o) => (
+            <button
+              key={o.v}
+              onClick={() => setTheme(o.v)}
+              style={{
+                flex: 1,
+                background: theme === o.v ? C.seal : C.bg2,
+                border: "1px solid " + (theme === o.v ? C.seal : C.line),
+                color: theme === o.v ? "#fff" : C.ink,
+                borderRadius: 11,
+                padding: "10px 0",
+                fontFamily: FJP,
+                fontWeight: 700,
+                fontSize: 13.5,
+                cursor: "pointer",
+              }}
+            >
+              {o.t}
+            </button>
+          ))}
+        </div>
 
         <Label>Study direction</Label>
         {dirs.map((o) => (

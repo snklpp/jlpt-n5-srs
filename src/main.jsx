@@ -32,3 +32,10 @@ if (typeof window !== "undefined" && !window.storage) {
 }
 
 createRoot(document.getElementById("root")).render(<JlptN5Srs />);
+
+// Register the service worker (installable PWA + offline). Scoped to the app root.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
+}
