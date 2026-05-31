@@ -185,6 +185,7 @@ const CSS = `
   --seal:#e3503a; --gold:#e8b65a;
   --again:#e2574f; --hard:#e7e9f0; --good:#48c98b; --easy:#5b9cf0; --learn:#e89a4a;
   --glow:rgba(42,33,80,0.50);
+  --panel:rgba(255,255,255,0.05); --track:rgba(255,255,255,0.08);
 }
 :root[data-theme="light"]{
   --bg0:#f4f1ea; --bg1:#ffffff; --bg2:#efeae0;
@@ -193,6 +194,7 @@ const CSS = `
   --seal:#cf4327; --gold:#b07d1e;
   --again:#d6453d; --hard:#3a3f4b; --good:#1ea672; --easy:#2f7fe0; --learn:#c9792a;
   --glow:rgba(232,182,90,0.16);
+  --panel:rgba(24,18,10,0.05); --track:rgba(24,18,10,0.09);
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 html,body{height:100%;margin:0;background:var(--bg0);overscroll-behavior:none;}
@@ -204,6 +206,12 @@ ruby rt{font-size:.52em;color:var(--gold);font-weight:500;line-height:1;margin-b
 @keyframes n5toast{0%{opacity:0;transform:translate(-50%,8px)}14%{opacity:1;transform:translate(-50%,0)}80%{opacity:1;transform:translate(-50%,0)}100%{opacity:0;transform:translate(-50%,-4px)}}
 @keyframes n5in{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
 @keyframes n5pop{0%{transform:scale(.96);opacity:.4}100%{transform:scale(1);opacity:1}}
+@keyframes n5reveal{0%{opacity:0;transform:translateY(10px) scale(.985)}100%{opacity:1;transform:none}}
+.n5press{transition:transform .09s ease, filter .12s ease;}
+.n5press:active{transform:scale(.975);}
+button:focus-visible,[role="button"]:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
+@media (prefers-reduced-motion: reduce){*{animation-duration:.001ms !important;transition:none !important;}}
+@media (hover: none){.n5-kbd-hint{display:none !important;}}
 `;
 
 /* translucent colour from any CSS colour (incl. var()) — theme-safe */
@@ -241,12 +249,12 @@ function Breakdown({ b }) {
       <div style={{ fontSize: 10, letterSpacing: 1.6, color: C.gold, fontFamily: FJP, marginBottom: 9 }}>
         THE VISUAL LINK
       </div>
-      <div style={{ fontFamily: FJP, fontSize: 14.5, lineHeight: 1.65, color: "#e7eaf2", marginBottom: 12 }}>
+      <div style={{ fontFamily: FJP, fontSize: 14.5, lineHeight: 1.65, color: C.ink, marginBottom: 12 }}>
         <span style={{ fontFamily: FDISP, fontWeight: 800, color: C.gold, fontSize: 17 }}>{renderMnemonic(b.word)}</span>
         {" means “"}
         {b.means}
         {".” "}
-        {b.hook && <span style={{ color: "#c2c7d4" }}>{renderMnemonic(b.hook)}</span>}
+        {b.hook && <span style={{ color: C.sub }}>{renderMnemonic(b.hook)}</span>}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 9, marginBottom: 13 }}>
         {b.parts.map((p, i) => (
@@ -265,7 +273,7 @@ function Breakdown({ b }) {
             >
               {renderMnemonic(p.k)}
             </span>
-            <div style={{ fontFamily: FJP, fontSize: 13.5, lineHeight: 1.55, color: "#cfd4e0", paddingTop: 2 }}>
+            <div style={{ fontFamily: FJP, fontSize: 13.5, lineHeight: 1.55, color: C.sub, paddingTop: 2 }}>
               {p.pos && <span style={{ color: C.faint, fontSize: 11.5 }}>{p.pos} · </span>}
               {renderMnemonic(p.text)}
             </div>
@@ -276,7 +284,7 @@ function Breakdown({ b }) {
         <div style={{ fontSize: 10, letterSpacing: 1.4, color: C.easy, fontFamily: FJP, marginBottom: 6 }}>
           HOW TO VISUALIZE IT
         </div>
-        <div style={{ fontFamily: FJP, fontSize: 14, lineHeight: 1.7, color: "#d9dde8" }}>
+        <div style={{ fontFamily: FJP, fontSize: 14, lineHeight: 1.7, color: C.ink }}>
           {renderMnemonic(b.visualize)}
         </div>
       </div>
@@ -319,6 +327,13 @@ function copyText(t) {
     }
   } catch (e) {}
   fallbackCopy(t);
+}
+
+/* subtle haptic tick (mobile) — silently ignored where unsupported */
+function haptic(ms) {
+  try {
+    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(ms);
+  } catch (e) {}
 }
 
 /* ============================ component =================================== */
@@ -469,8 +484,32 @@ export default function JlptN5Srs() {
     setView("study");
   }
 
+  /* ---- keyboard shortcuts (desktop/web): space reveal · 1-4 grade · z undo · esc back ---- */
+  useEffect(() => {
+    if (view !== "study") return;
+    const onKey = (e) => {
+      if (showSettings) return;
+      const tag = (e.target && e.target.tagName) || "";
+      if (tag === "INPUT" || tag === "TEXTAREA" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const k = e.key;
+      if (k === "Escape") { setView("home"); return; }
+      if ((k === "z" || k === "Z" || k === "u" || k === "U") && undoStack.length) { e.preventDefault(); doUndo(); return; }
+      if (!cur) return;
+      if (!revealed) {
+        if (k === " " || k === "Enter") { e.preventDefault(); doReveal(); }
+        return;
+      }
+      if (k === " " || k === "Enter") { e.preventDefault(); doGrade(2); return; } // space = Good once revealed
+      if (k >= "1" && k <= "4") { e.preventDefault(); doGrade(parseInt(k, 10) - 1); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line
+  }, [view, showSettings, cur, revealed, undoStack.length, sched, scopeCards, daily, settings.direction]);
+
   function doGrade(g) {
     if (!cur || !revealed) return;
+    haptic(g === 0 ? [8, 30, 8] : 10);
     const id = cur.id;
     const prev = sched[id] ? { ...sched[id] } : null;
     const ns = applyGrade(prev, g, Date.now());
@@ -490,8 +529,15 @@ export default function JlptN5Srs() {
     setActiveGrade(-1);
   }
 
+  function doReveal() {
+    if (revealed) return;
+    haptic(6);
+    setRevealed(true);
+  }
+
   function doUndo() {
     if (!undoStack.length) return;
+    haptic(6);
     const snap = undoStack[undoStack.length - 1];
     setSched((s) => {
       const c = { ...s };
@@ -535,6 +581,21 @@ export default function JlptN5Srs() {
     const newShow = Math.max(0, Math.min(newLeft, newAllowance));
     return { learn, due, newShow, newLeft };
   }, [scopeCards, sched, now, newAllowance]);
+
+  /* ---- today's overall progress (scope-independent momentum bar) ---- */
+  const dayProgress = useMemo(() => {
+    let queue = 0;
+    let newGlobal = 0;
+    for (const c of CARDS) {
+      const s = sched[c.id];
+      if (!s) { newGlobal++; continue; }
+      if (s.due <= now && (s.state === "review" || s.state === "learning" || s.state === "relearning")) queue++;
+    }
+    queue += Math.max(0, Math.min(newGlobal, newAllowance));
+    const done = daily.reviewsToday || 0;
+    const total = done + queue;
+    return { done, remaining: queue, pct: total ? done / total : 0 };
+  }, [sched, now, newAllowance, daily.reviewsToday]);
 
   /* ---- next due (for done screen) ---- */
   const nextDue = useMemo(() => {
@@ -614,7 +675,21 @@ export default function JlptN5Srs() {
         </header>
 
         <div className="n5-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "8px 14px 18px" }}>
-          <button onClick={() => startStudy({ type: "all" })} style={allCardBtn}>
+          <div style={{ background: C.bg1, border: "1px solid " + C.line, borderRadius: 16, padding: "13px 15px", marginTop: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+              <span style={{ fontFamily: FJP, fontSize: 12.5, color: C.sub }}>
+                <b style={{ color: C.ink, fontFamily: FDISP, fontSize: 18, fontVariantNumeric: "tabular-nums" }}>{daily.reviewsToday || 0}</b> studied today
+              </span>
+              <span style={{ fontFamily: FJP, fontSize: 11, color: C.faint, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+                {stats.seen}/{stats.total} learned · {stats.mature} mastered
+              </span>
+            </div>
+            <div style={{ marginTop: 10, height: 6, background: "var(--track)", borderRadius: 6, overflow: "hidden", display: "flex" }}>
+              <div style={{ width: (stats.total ? (stats.mature / stats.total) * 100 : 0) + "%", height: "100%", background: C.good, transition: "width .4s ease" }} />
+              <div style={{ width: (stats.total ? (Math.max(0, stats.seen - stats.mature) / stats.total) * 100 : 0) + "%", height: "100%", background: hexA(C.easy, 0.7), transition: "width .4s ease" }} />
+            </div>
+          </div>
+          <button onClick={() => startStudy({ type: "all" })} className="n5press" style={allCardBtn}>
             <div>
               <div style={{ fontFamily: FDISP, fontWeight: 800, fontSize: 18, color: C.bg0 }}>Study everything</div>
               <div style={{ fontSize: 12.5, color: "rgba(15,17,23,0.7)", marginTop: 3, fontFamily: FJP }}>
@@ -638,6 +713,7 @@ export default function JlptN5Srs() {
                   </span>
                   <button
                     onClick={() => startStudy({ type: "level", level: lv })}
+                    className="n5press"
                     style={{
                       background: hexA(C.seal, 0.14),
                       border: "1px solid " + hexA(C.seal, 0.5),
@@ -659,7 +735,7 @@ export default function JlptN5Srs() {
                   const pct = Math.round((hs.seen / hs.total) * 100);
                   const newShow = Math.max(0, Math.min(hs.newLeft, newAllowance));
                   return (
-                    <button key={si} onClick={() => startStudy({ type: "section", si })} style={secBtn}>
+                    <button key={si} onClick={() => startStudy({ type: "section", si })} className="n5press" style={secBtn}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div
                           style={{
@@ -758,12 +834,33 @@ export default function JlptN5Srs() {
         <Counter label="LRN" n={counters.learn} color={C.learn} />
         <Counter label="DUE" n={counters.due} color={C.easy} />
       </div>
+      {(dayProgress.done > 0 || dayProgress.remaining > 0) && (
+        <div style={{ padding: "0 18px 2px", flex: "0 0 auto" }}>
+          <div style={{ height: 5, background: "var(--track)", borderRadius: 5, overflow: "hidden" }}>
+            <div
+              style={{
+                width: Math.round(dayProgress.pct * 100) + "%",
+                height: "100%",
+                borderRadius: 5,
+                background: `linear-gradient(90deg, ${C.gold}, ${C.good})`,
+                transition: "width .35s ease",
+              }}
+            />
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+            <span style={{ fontSize: 9.5, letterSpacing: 1, color: C.faint, fontFamily: FJP }}>TODAY</span>
+            <span style={{ fontSize: 9.5, color: C.faint, fontFamily: FJP, fontVariantNumeric: "tabular-nums" }}>
+              {dayProgress.done} done · {dayProgress.remaining} left
+            </span>
+          </div>
+        </div>
+      )}
 
       {card ? (
         <>
           <div
             className="n5-scroll"
-            onClick={() => !revealed && setRevealed(true)}
+            onClick={doReveal}
             style={{
               flex: 1,
               minHeight: 0,
@@ -823,7 +920,7 @@ export default function JlptN5Srs() {
 
               {/* revealed content */}
               {revealed && (
-                <div style={{ animation: "n5in .28s ease both" }}>
+                <div style={{ animation: "n5reveal .3s ease both" }}>
                   {dir === "en" && hasKanji && (
                     <CopyTarget active flash={flash === "kanji"} onTap={() => copyField("kanji", card.kanji)} center>
                       <div style={{ fontFamily: FDISP, fontWeight: 700, fontSize: fontForWord(card.kanji), color: C.ink, textAlign: "center", lineHeight: 1.15, marginTop: 6 }}>
@@ -864,7 +961,7 @@ export default function JlptN5Srs() {
                     <div
                       style={{
                         marginTop: 14,
-                        background: hexA("#000000", 0.22),
+                        background: "var(--panel)",
                         border: "1px solid " + C.line,
                         borderRadius: 14,
                         padding: "14px 15px",
@@ -877,7 +974,7 @@ export default function JlptN5Srs() {
                           <div style={{ fontSize: 10, letterSpacing: 1.6, color: C.gold, fontFamily: FJP, marginBottom: 6 }}>
                             HINT
                           </div>
-                          <div style={{ fontFamily: FJP, fontSize: 15, lineHeight: 1.7, color: "#d9dde8" }}>
+                          <div style={{ fontFamily: FJP, fontSize: 15, lineHeight: 1.7, color: C.ink }}>
                             {renderMnemonic(card.mnemonic)}
                           </div>
                         </>
@@ -903,6 +1000,7 @@ export default function JlptN5Srs() {
                 return (
                   <button
                     key={b.g}
+                    className="n5press"
                     onClick={() => doGrade(b.g)}
                     onPointerDown={() => setActiveGrade(b.g)}
                     onPointerUp={() => setActiveGrade(-1)}
@@ -919,9 +1017,13 @@ export default function JlptN5Srs() {
                       justifyContent: "center",
                       gap: 3,
                       cursor: "pointer",
+                      position: "relative",
                       transition: "background .08s",
                     }}
                   >
+                    <span className="n5-kbd-hint" style={{ position: "absolute", top: 6, fontSize: 9, color: hexA(b.color, 0.55), fontFamily: FJP, fontWeight: 700 }}>
+                      {b.g + 1}
+                    </span>
                     <span style={{ fontSize: 11.5, color: hexA(b.color, 0.85), fontVariantNumeric: "tabular-nums", fontFamily: FJP }}>
                       {span}
                     </span>
@@ -935,10 +1037,10 @@ export default function JlptN5Srs() {
           ) : (
             <div style={{ ...gradeBar, justifyContent: "center", alignItems: "center", borderTop: "1px solid " + C.line }}>
               <button
-                onClick={() => setRevealed(true)}
+                onClick={doReveal}
                 style={{ background: "none", border: "none", color: C.sub, fontFamily: FJP, fontSize: 14, letterSpacing: 1, cursor: "pointer" }}
               >
-                Show answer
+                Show answer<span style={{ color: C.faint, fontSize: 11, marginLeft: 7 }} className="n5-kbd-hint">␣</span>
               </button>
             </div>
           )}
@@ -1131,6 +1233,7 @@ function IconBtn({ onClick, label, disabled }) {
     <button
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
+      className="n5press"
       style={{
         width: 38,
         height: 38,
