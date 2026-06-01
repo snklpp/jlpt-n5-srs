@@ -175,6 +175,7 @@ const C = {
 const THEME_BG = { dark: "#0f1117", light: "#f4f1ea" }; // for the browser theme-color meta
 const FJP = "'Zen Maru Gothic', sans-serif";
 const FDISP = "'Zen Kaku Gothic New', sans-serif";
+const INK_GOLD = "#2a1c06"; // dark ink for text on the gold→seal gradient (theme-independent)
 
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700;900&family=Zen+Maru+Gothic:wght@400;500;700&display=swap');
@@ -186,6 +187,7 @@ const CSS = `
   --again:#e2574f; --hard:#e7e9f0; --good:#48c98b; --easy:#5b9cf0; --learn:#e89a4a;
   --glow:rgba(42,33,80,0.50);
   --panel:rgba(255,255,255,0.05); --track:rgba(255,255,255,0.08);
+  --shadow:0 12px 32px rgba(0,0,0,0.42); --shadowSoft:0 6px 18px rgba(0,0,0,0.30);
 }
 :root[data-theme="light"]{
   --bg0:#f4f1ea; --bg1:#ffffff; --bg2:#efeae0;
@@ -195,6 +197,7 @@ const CSS = `
   --again:#d6453d; --hard:#3a3f4b; --good:#1ea672; --easy:#2f7fe0; --learn:#c9792a;
   --glow:rgba(232,182,90,0.16);
   --panel:rgba(24,18,10,0.05); --track:rgba(24,18,10,0.09);
+  --shadow:0 12px 32px rgba(70,55,30,0.14); --shadowSoft:0 6px 18px rgba(70,55,30,0.09);
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 html,body{height:100%;margin:0;background:var(--bg0);overscroll-behavior:none;}
@@ -212,6 +215,13 @@ ruby rt{font-size:.52em;color:var(--gold);font-weight:500;line-height:1;margin-b
 button:focus-visible,[role="button"]:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
 @media (prefers-reduced-motion: reduce){*{animation-duration:.001ms !important;transition:none !important;}}
 @media (hover: none){.n5-kbd-hint{display:none !important;}}
+@media (hover: hover){
+  .n5lift{transition:transform .15s ease, box-shadow .2s ease, border-color .18s ease;}
+  .n5lift:hover{transform:translateY(-2px);box-shadow:var(--shadow);border-color:var(--line2);}
+  .n5lift:active{transform:translateY(0) scale(.99);}
+}
+@keyframes n5rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.n5stagger{animation:n5rise .42s cubic-bezier(.22,.61,.36,1) both;}
 `;
 
 /* translucent colour from any CSS colour (incl. var()) — theme-safe */
@@ -632,6 +642,7 @@ export default function JlptN5Srs() {
       let seen = 0;
       let due = 0;
       let newLeft = 0;
+      let mature = 0;
       for (const c of CARDS) {
         if (c.si !== si) continue;
         total++;
@@ -641,9 +652,10 @@ export default function JlptN5Srs() {
           continue;
         }
         seen++;
+        if (sc.state === "review" && sc.interval >= 21) mature++;
         if (sc.due <= now && (sc.state === "review" || sc.state === "learning" || sc.state === "relearning")) due++;
       }
-      return { total, seen, due, newLeft };
+      return { total, seen, due, newLeft, mature };
     });
   }, [sched, now]);
 
@@ -675,30 +687,57 @@ export default function JlptN5Srs() {
         </header>
 
         <div className="n5-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "8px 14px 18px" }}>
-          <div style={{ background: C.bg1, border: "1px solid " + C.line, borderRadius: 16, padding: "13px 15px", marginTop: 8 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-              <span style={{ fontFamily: FJP, fontSize: 12.5, color: C.sub }}>
-                <b style={{ color: C.ink, fontFamily: FDISP, fontSize: 18, fontVariantNumeric: "tabular-nums" }}>{daily.reviewsToday || 0}</b> studied today
-              </span>
-              <span style={{ fontFamily: FJP, fontSize: 11, color: C.faint, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-                {stats.seen}/{stats.total} learned · {stats.mature} mastered
-              </span>
+          <div className="n5stagger" style={heroCard}>
+            <div style={{ display: "flex", alignItems: "center", gap: 15 }}>
+              <Ring
+                pct={dayProgress.pct}
+                size={66}
+                stroke={6}
+                color={dayProgress.done + dayProgress.remaining === 0 ? C.faint : dayProgress.remaining === 0 ? C.good : C.gold}
+              >
+                <span style={{ fontFamily: FDISP, fontWeight: 900, fontSize: 16, color: C.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
+                  {Math.round(dayProgress.pct * 100)}
+                  <span style={{ fontSize: 8.5, color: C.sub, fontWeight: 700 }}>%</span>
+                </span>
+              </Ring>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: FJP, fontSize: 10.5, letterSpacing: 2.5, color: C.faint }}>TODAY</div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 4 }}>
+                  <span style={{ fontFamily: FDISP, fontWeight: 900, fontSize: 27, color: C.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
+                    {daily.reviewsToday || 0}
+                  </span>
+                  <span style={{ fontFamily: FJP, fontSize: 12.5, color: C.sub }}>reviewed</span>
+                </div>
+                <div style={{ fontFamily: FJP, fontSize: 12, color: dayProgress.remaining > 0 ? C.sub : C.good, marginTop: 4 }}>
+                  {dayProgress.remaining > 0
+                    ? dayProgress.remaining + " left in today's queue"
+                    : dayProgress.done > 0
+                    ? "All caught up — nicely done"
+                    : "Nothing due right now"}
+                </div>
+              </div>
             </div>
-            <div style={{ marginTop: 10, height: 6, background: "var(--track)", borderRadius: 6, overflow: "hidden", display: "flex" }}>
-              <div style={{ width: (stats.total ? (stats.mature / stats.total) * 100 : 0) + "%", height: "100%", background: C.good, transition: "width .4s ease" }} />
-              <div style={{ width: (stats.total ? (Math.max(0, stats.seen - stats.mature) / stats.total) * 100 : 0) + "%", height: "100%", background: hexA(C.easy, 0.7), transition: "width .4s ease" }} />
+            <div style={{ height: 1, background: C.line, margin: "14px 0 12px" }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 14, fontFamily: FJP, fontSize: 11.5 }}>
+              <span style={legend}><i style={dotS(C.good)} />{stats.mature} mastered</span>
+              <span style={legend}><i style={dotS(hexA(C.easy, 0.85))} />{Math.max(0, stats.seen - stats.mature)} learning</span>
+              <span style={{ marginLeft: "auto", color: C.faint, fontVariantNumeric: "tabular-nums" }}>{stats.seen}/{stats.total}</span>
+            </div>
+            <div style={{ marginTop: 10, height: 7, background: "var(--track)", borderRadius: 7, overflow: "hidden", display: "flex" }}>
+              <div style={{ width: (stats.total ? (stats.mature / stats.total) * 100 : 0) + "%", height: "100%", background: C.good, transition: "width .5s ease" }} />
+              <div style={{ width: (stats.total ? (Math.max(0, stats.seen - stats.mature) / stats.total) * 100 : 0) + "%", height: "100%", background: hexA(C.easy, 0.7), transition: "width .5s ease" }} />
             </div>
           </div>
-          <button onClick={() => startStudy({ type: "all" })} className="n5press" style={allCardBtn}>
+          <button onClick={() => startStudy({ type: "all" })} className="n5press n5lift n5stagger" style={{ ...allCardBtn, animationDelay: ".05s" }}>
             <div>
-              <div style={{ fontFamily: FDISP, fontWeight: 800, fontSize: 18, color: C.bg0 }}>Study everything</div>
-              <div style={{ fontSize: 12.5, color: "rgba(15,17,23,0.7)", marginTop: 3, fontFamily: FJP }}>
+              <div style={{ fontFamily: FDISP, fontWeight: 800, fontSize: 18, color: INK_GOLD }}>Study everything</div>
+              <div style={{ fontSize: 12.5, color: "rgba(42,28,6,0.68)", marginTop: 3, fontFamily: FJP }}>
                 All {CARDS.length} words · {SECTIONS.length} sections
               </div>
             </div>
             <div style={{ display: "flex", gap: 6 }}>
-              <MiniPill n={totalNew} c={C.bg0} bg="rgba(15,17,23,0.14)" t="new" dark />
-              <MiniPill n={totalDue} c={C.bg0} bg="rgba(15,17,23,0.14)" t="due" dark />
+              <MiniPill n={totalNew} c={INK_GOLD} bg="rgba(42,28,6,0.13)" t="new" dark />
+              <MiniPill n={totalDue} c={INK_GOLD} bg="rgba(42,28,6,0.13)" t="due" dark />
             </div>
           </button>
 
@@ -707,25 +746,12 @@ export default function JlptN5Srs() {
             const lvWords = CARDS.filter((c) => c.level === lv).length;
             return (
               <div key={lv}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "20px 4px 9px" }}>
-                  <span style={{ fontSize: 11, letterSpacing: 2, color: C.faint, fontFamily: FJP }}>
-                    {lv} · {lvWords} WORDS
-                  </span>
-                  <button
-                    onClick={() => startStudy({ type: "level", level: lv })}
-                    className="n5press"
-                    style={{
-                      background: hexA(C.seal, 0.14),
-                      border: "1px solid " + hexA(C.seal, 0.5),
-                      color: C.seal,
-                      borderRadius: 20,
-                      padding: "4px 13px",
-                      fontFamily: FJP,
-                      fontWeight: 700,
-                      fontSize: 11.5,
-                      cursor: "pointer",
-                    }}
-                  >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "22px 4px 11px" }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 9 }}>
+                    <span style={{ fontFamily: FDISP, fontWeight: 900, fontSize: 13, color: C.ink, letterSpacing: 1 }}>{lv}</span>
+                    <span style={{ fontSize: 10.5, letterSpacing: 2, color: C.faint, fontFamily: FJP }}>{lvWords} WORDS</span>
+                  </div>
+                  <button onClick={() => startStudy({ type: "level", level: lv })} className="n5press" style={studyAllPill}>
                     Study all {lv}
                   </button>
                 </div>
@@ -734,8 +760,10 @@ export default function JlptN5Srs() {
                   const hs = homeStats[si];
                   const pct = Math.round((hs.seen / hs.total) * 100);
                   const newShow = Math.max(0, Math.min(hs.newLeft, newAllowance));
+                  const mastered = hs.total > 0 && hs.mature === hs.total;
+                  const restful = !mastered && newShow === 0 && hs.due === 0 && hs.seen > 0;
                   return (
-                    <button key={si} onClick={() => startStudy({ type: "section", si })} className="n5press" style={secBtn}>
+                    <button key={si} onClick={() => startStudy({ type: "section", si })} className="n5press n5lift" style={secBtn}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div
                           style={{
@@ -751,17 +779,33 @@ export default function JlptN5Srs() {
                           {s.name}
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 7 }}>
-                          <div style={{ flex: 1, height: 4, background: C.bg2, borderRadius: 4, overflow: "hidden" }}>
-                            <div style={{ width: pct + "%", height: "100%", background: C.seal, borderRadius: 4 }} />
+                          <div style={{ flex: 1, height: 5, background: C.bg2, borderRadius: 5, overflow: "hidden" }}>
+                            <div
+                              style={{
+                                width: pct + "%",
+                                height: "100%",
+                                background: mastered ? C.gold : `linear-gradient(90deg, ${hexA(C.seal, 0.85)}, ${C.seal})`,
+                                borderRadius: 5,
+                                transition: "width .45s ease",
+                              }}
+                            />
                           </div>
                           <span style={{ fontSize: 11, color: C.faint, fontVariantNumeric: "tabular-nums" }}>
                             {hs.seen}/{hs.total}
                           </span>
                         </div>
                       </div>
-                      <div style={{ display: "flex", gap: 6, marginLeft: 12 }}>
-                        <MiniPill n={newShow} c={C.gold} bg={hexA(C.gold, 0.12)} t="new" />
-                        <MiniPill n={hs.due} c={C.easy} bg={hexA(C.easy, 0.12)} t="due" />
+                      <div style={{ display: "flex", gap: 6, marginLeft: 12, alignItems: "center" }}>
+                        {mastered ? (
+                          <span style={doneBadge(C.gold)} title="Mastered">★</span>
+                        ) : restful ? (
+                          <span style={doneBadge(C.good)} title="Caught up">✓</span>
+                        ) : (
+                          <>
+                            <MiniPill n={newShow} c={C.gold} bg={hexA(C.gold, 0.12)} t="new" />
+                            <MiniPill n={hs.due} c={C.easy} bg={hexA(C.easy, 0.12)} t="due" />
+                          </>
+                        )}
                       </div>
                     </button>
                   );
@@ -1188,20 +1232,52 @@ const gradeBar = {
   borderTop: "1px solid " + C.line2,
   paddingBottom: "env(safe-area-inset-bottom)",
 };
+const heroCard = {
+  background: `linear-gradient(165deg, ${C.bg1}, ${C.bg2})`,
+  border: "1px solid " + C.line,
+  borderRadius: 20,
+  padding: "16px 17px",
+  marginTop: 10,
+  boxShadow: "var(--shadowSoft)",
+};
+const legend = { display: "flex", alignItems: "center", gap: 6, color: "var(--sub)" };
+const dotS = (col) => ({ width: 8, height: 8, borderRadius: 4, background: col, display: "inline-block", flex: "0 0 auto" });
+const doneBadge = (col) => ({
+  minWidth: 38,
+  height: 34,
+  borderRadius: 10,
+  display: "grid",
+  placeItems: "center",
+  background: hexA(col, 0.13),
+  color: col,
+  fontSize: 15,
+  lineHeight: 1,
+});
+const studyAllPill = {
+  background: hexA(C.seal, 0.14),
+  border: "1px solid " + hexA(C.seal, 0.45),
+  color: C.seal,
+  borderRadius: 20,
+  padding: "5px 14px",
+  fontFamily: FJP,
+  fontWeight: 700,
+  fontSize: 11.5,
+  cursor: "pointer",
+};
 const allCardBtn = {
   width: "100%",
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
   gap: 10,
-  background: `linear-gradient(135deg, ${C.gold}, ${C.seal})`,
+  background: `radial-gradient(130% 130% at 0% 0%, rgba(255,255,255,0.24), transparent 52%), linear-gradient(135deg, ${C.gold}, ${C.seal})`,
   border: "none",
   borderRadius: 18,
-  padding: "16px 18px",
-  marginTop: 8,
+  padding: "17px 18px",
+  marginTop: 16,
   cursor: "pointer",
   textAlign: "left",
-  boxShadow: "0 10px 26px rgba(227,80,58,0.28)",
+  boxShadow: "0 12px 30px rgba(227,80,58,0.30)",
 };
 const secBtn = {
   width: "100%",
@@ -1268,7 +1344,34 @@ function MiniPill({ n, c, bg, t, dark }) {
   return (
     <div style={{ minWidth: 34, textAlign: "center", background: bg, borderRadius: 9, padding: "5px 7px" }}>
       <div style={{ fontSize: 14, fontWeight: 800, color: c, fontFamily: FDISP, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{n}</div>
-      <div style={{ fontSize: 8.5, letterSpacing: 1, color: dark ? "rgba(15,17,23,0.7)" : c, opacity: dark ? 1 : 0.75, fontFamily: FJP, marginTop: 2 }}>{t}</div>
+      <div style={{ fontSize: 8.5, letterSpacing: 1, color: c, opacity: dark ? 0.72 : 0.78, fontFamily: FJP, marginTop: 2 }}>{t}</div>
+    </div>
+  );
+}
+function Ring({ pct, size = 64, stroke = 6, color = "var(--gold)", children }) {
+  const r = (size - stroke) / 2;
+  const circ = 2 * Math.PI * r;
+  const p = Math.max(0, Math.min(1, pct || 0));
+  const off = circ * (1 - p);
+  const cx = size / 2;
+  return (
+    <div style={{ position: "relative", width: size, height: size, flex: "0 0 auto" }}>
+      <svg width={size} height={size} style={{ transform: "rotate(-90deg)", display: "block" }}>
+        <circle cx={cx} cy={cx} r={r} fill="none" stroke="var(--track)" strokeWidth={stroke} />
+        <circle
+          cx={cx}
+          cy={cx}
+          r={r}
+          fill="none"
+          stroke={color}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={circ}
+          strokeDashoffset={off}
+          style={{ transition: "stroke-dashoffset .6s cubic-bezier(.4,0,.2,1), stroke .3s ease" }}
+        />
+      </svg>
+      <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}>{children}</div>
     </div>
   );
 }
