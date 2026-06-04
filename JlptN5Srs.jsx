@@ -303,13 +303,42 @@ function Breakdown({ b }) {
 }
 
 const fontForWord = (str) => {
-  const n = [...(str || "")].length;
+  const s = str || "";
+  const n = [...s].length;
+  if (/^[\x00-\x7f]+$/.test(s)) {
+    // romaji / latin — narrower glyphs, so size more generously
+    if (n <= 4) return 54;
+    if (n <= 7) return 44;
+    if (n <= 10) return 34;
+    if (n <= 14) return 28;
+    return 23;
+  }
   if (n <= 2) return 66;
   if (n <= 3) return 54;
   if (n <= 5) return 42;
   if (n <= 7) return 32;
   return 26;
 };
+
+/* ---- word display modes (header toggle in study view) ----
+   0: kanji + hiragana · 1: hiragana + romaji · 2: romaji only */
+const SCRIPT_MODES = [
+  { glyph: "漢", title: "Kanji + kana" },
+  { glyph: "あ", title: "Kana + romaji" },
+  { glyph: "A", title: "Romaji only" },
+];
+function wordMain(card, mode) {
+  if (!card) return "";
+  if (mode === 2) return card.romaji || card.kana;
+  if (mode === 1) return card.kana;
+  return card.kanji && card.kanji !== card.kana ? card.kanji : card.kana;
+}
+function wordSub(card, mode) {
+  if (!card) return "";
+  if (mode === 2) return "";
+  if (mode === 1) return card.romaji || "";
+  return card.kanji && card.kanji !== card.kana ? card.kana : "";
+}
 
 /* ============================ clipboard =================================== */
 function fallbackCopy(t) {
@@ -356,6 +385,7 @@ export default function JlptN5Srs() {
   const [settings, setSettings] = useState({ direction: "jp", newPerDay: 15 });
   const [theme, setTheme] = useState("dark"); // 'dark' | 'light' | 'auto'
   const [sysLight, setSysLight] = useState(false);
+  const [scriptMode, setScriptMode] = useState(0); // 0 kanji+kana · 1 kana+romaji · 2 romaji
   const [now, setNow] = useState(Date.now());
   const [cur, setCur] = useState(null); // {id,isNew,dir}
   const [revealed, setRevealed] = useState(false);
@@ -375,6 +405,7 @@ export default function JlptN5Srs() {
         if (s.sched) setSched(s.sched);
         if (s.settings) setSettings((p) => ({ ...p, ...s.settings }));
         if (s.theme) setTheme(s.theme);
+        if (typeof s.scriptMode === "number") setScriptMode(s.scriptMode);
         if (s.daily) {
           const d = s.daily;
           if (d.date !== todayStr(Date.now())) setDaily({ date: todayStr(Date.now()), newDone: 0, reviewsToday: 0, extraNew: 0 });
@@ -433,8 +464,8 @@ export default function JlptN5Srs() {
   /* ---- persist progress + last screen + theme ---- */
   useEffect(() => {
     if (!ready) return;
-    saveState({ v: 1, sched, daily, settings, theme, view, scope, cur, revealed });
-  }, [sched, daily, settings, theme, view, scope, cur, revealed, ready]);
+    saveState({ v: 1, sched, daily, settings, theme, scriptMode, view, scope, cur, revealed });
+  }, [sched, daily, settings, theme, scriptMode, view, scope, cur, revealed, ready]);
 
   /* ---- scope cards ---- */
   const scopeCards = useMemo(
@@ -847,7 +878,9 @@ export default function JlptN5Srs() {
   const card = cur ? CARD_BY_ID[cur.id] : null;
   const dir = cur ? cur.dir : "jp";
   const hasKanji = card && card.kanji && card.kanji !== card.kana;
-  const promptWord = card ? (dir === "en" ? card.meaning || card.kana : hasKanji ? card.kanji : card.kana) : "";
+  const wMain = wordMain(card, scriptMode);
+  const wSub = wordSub(card, scriptMode);
+  const promptWord = card ? (dir === "en" ? card.meaning || card.kana : wMain) : "";
 
   return (
     <Shell>
@@ -870,6 +903,11 @@ export default function JlptN5Srs() {
           </div>
         </div>
         <IconBtn onClick={doUndo} label="↶" disabled={!undoStack.length} />
+        <IconBtn
+          onClick={() => setScriptMode((m) => (m + 1) % 3)}
+          label={SCRIPT_MODES[scriptMode].glyph}
+          title={SCRIPT_MODES[scriptMode].title}
+        />
         <IconBtn onClick={() => setShowSettings(true)} label="⚙" />
       </header>
 
@@ -945,11 +983,7 @@ export default function JlptN5Srs() {
                     </div>
                   </CopyTarget>
                 ) : (
-                  <CopyTarget
-                    active={revealed}
-                    flash={flash === "word"}
-                    onTap={() => copyField("word", hasKanji ? card.kanji : card.kana)}
-                  >
+                  <CopyTarget active={revealed} flash={flash === "word"} onTap={() => copyField("word", wMain)}>
                     <div style={{ fontFamily: FDISP, fontWeight: 700, fontSize: fontForWord(promptWord), color: C.ink, textAlign: "center", lineHeight: 1.15 }}>
                       {promptWord}
                     </div>
@@ -965,29 +999,25 @@ export default function JlptN5Srs() {
               {/* revealed content */}
               {revealed && (
                 <div style={{ animation: "n5reveal .3s ease both" }}>
-                  {dir === "en" && hasKanji && (
-                    <CopyTarget active flash={flash === "kanji"} onTap={() => copyField("kanji", card.kanji)} center>
-                      <div style={{ fontFamily: FDISP, fontWeight: 700, fontSize: fontForWord(card.kanji), color: C.ink, textAlign: "center", lineHeight: 1.15, marginTop: 6 }}>
-                        {card.kanji}
+                  {/* answer word (EN direction: the Japanese is revealed here) */}
+                  {dir === "en" && (
+                    <CopyTarget active flash={flash === "word"} onTap={() => copyField("word", wMain)} center>
+                      <div style={{ fontFamily: FDISP, fontWeight: 700, fontSize: fontForWord(wMain), color: C.ink, textAlign: "center", lineHeight: 1.15, marginTop: 6 }}>
+                        {wMain}
                       </div>
                     </CopyTarget>
                   )}
-                  {dir === "jp" && hasKanji && (
-                    <CopyTarget active flash={flash === "kanji"} onTap={() => copyField("kanji", card.kanji)} center>
-                      {/* kanji already shown as prompt; keep tappable region but no dup */}
-                      <div style={{ display: "none" }} />
-                    </CopyTarget>
-                  )}
 
-                  {/* reading row */}
-                  <div style={{ display: "flex", justifyContent: "center", alignItems: "baseline", gap: 12, flexWrap: "wrap", marginTop: 12 }}>
-                    <CopyTarget active flash={flash === "kana"} onTap={() => copyField("kana", card.kana)}>
-                      <span style={{ fontFamily: FJP, fontSize: 22, fontWeight: 500, color: C.ink }}>{card.kana}</span>
-                    </CopyTarget>
-                    <CopyTarget active flash={flash === "romaji"} onTap={() => copyField("romaji", card.romaji)}>
-                      <span style={{ fontFamily: FJP, fontSize: 14, color: C.sub, letterSpacing: 0.6 }}>{card.romaji}</span>
-                    </CopyTarget>
-                  </div>
+                  {/* reading / secondary script (hidden in romaji-only mode) */}
+                  {wSub && (
+                    <div style={{ display: "flex", justifyContent: "center", marginTop: dir === "en" ? 10 : 4 }}>
+                      <CopyTarget active flash={flash === "reading"} onTap={() => copyField("reading", wSub)}>
+                        <span style={{ fontFamily: FJP, fontSize: 21, fontWeight: 500, color: dir === "en" ? C.sub : C.ink, letterSpacing: /[a-z]/.test(wSub) ? 0.6 : 0 }}>
+                          {wSub}
+                        </span>
+                      </CopyTarget>
+                    </div>
+                  )}
 
                   <div style={{ height: 1, background: C.line, margin: "16px 0" }} />
 
@@ -1304,11 +1334,13 @@ const moreBtn = {
   cursor: "pointer",
 };
 
-function IconBtn({ onClick, label, disabled }) {
+function IconBtn({ onClick, label, disabled, title }) {
   return (
     <button
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
+      title={title}
+      aria-label={title}
       className="n5press"
       style={{
         width: 38,
