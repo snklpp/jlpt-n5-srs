@@ -285,6 +285,131 @@ function renderMnemonic(text) {
   return out;
 }
 
+/* ---- minimal markdown for user-edited breakdowns — inline: **bold** *italic* `code` 漢【よみ】 ---- */
+const MD_INLINE = /(\*\*([^*]+)\*\*|\*([^*\n]+)\*|`([^`]+)`|([㐀-鿿])【([^】]+)】)/g;
+function renderInline(text, kp) {
+  if (text == null) return null;
+  const out = [];
+  let last = 0;
+  let m;
+  let i = 0;
+  MD_INLINE.lastIndex = 0;
+  while ((m = MD_INLINE.exec(text))) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    if (m[2] != null) out.push(<strong key={kp + i++} style={{ fontWeight: 800, color: C.ink }}>{m[2]}</strong>);
+    else if (m[3] != null) out.push(<em key={kp + i++}>{m[3]}</em>);
+    else if (m[4] != null) out.push(<code key={kp + i++} style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: "0.9em", background: hexA(C.ink, 0.08), borderRadius: 5, padding: "1px 5px" }}>{m[4]}</code>);
+    else out.push(<ruby key={kp + i++}>{m[5]}<rt>{m[6]}</rt></ruby>);
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+function renderMarkdown(md) {
+  if (md == null || md === "") return null;
+  const lines = String(md).replace(/\r\n/g, "\n").split("\n");
+  const blocks = [];
+  let list = null;
+  const flush = () => {
+    if (list) {
+      blocks.push({ t: "ul", items: list });
+      list = null;
+    }
+  };
+  for (const raw of lines) {
+    const line = raw.replace(/\s+$/, "");
+    const li = /^\s*[-*+]\s+(.*)$/.exec(line);
+    if (li) {
+      (list || (list = [])).push(li[1]);
+      continue;
+    }
+    flush();
+    if (!line.trim()) continue;
+    const h = /^(#{1,3})\s+(.*)$/.exec(line);
+    if (h) {
+      blocks.push({ t: "h", lvl: h[1].length, text: h[2] });
+      continue;
+    }
+    blocks.push({ t: "p", text: line });
+  }
+  flush();
+  const body = { fontFamily: FJP, fontSize: 13.5, lineHeight: 1.65, color: C.ink };
+  return (
+    <div>
+      {blocks.map((b, i) => {
+        if (b.t === "h") {
+          if (b.lvl === 1)
+            return (
+              <div key={i} style={{ fontFamily: FDISP, fontWeight: 800, fontSize: 16, color: C.ink, margin: (i ? 13 : 0) + "px 0 7px" }}>
+                {renderInline(b.text, "h" + i)}
+              </div>
+            );
+          return (
+            <div key={i} style={{ fontSize: 10, letterSpacing: 1.4, color: b.lvl === 2 ? C.gold : C.sub, fontFamily: FJP, textTransform: "uppercase", margin: (i ? 13 : 0) + "px 0 6px" }}>
+              {renderInline(b.text, "h" + i)}
+            </div>
+          );
+        }
+        if (b.t === "ul")
+          return (
+            <div key={i} style={{ display: "flex", flexDirection: "column", gap: 7, margin: "4px 0 9px" }}>
+              {b.items.map((it, j) => (
+                <div key={j} style={{ display: "flex", gap: 9, alignItems: "flex-start" }}>
+                  <span style={{ color: C.seal, lineHeight: 1.5, flex: "0 0 auto" }}>•</span>
+                  <div style={{ ...body, color: C.sub }}>{renderInline(it, i + "u" + j)}</div>
+                </div>
+              ))}
+            </div>
+          );
+        return (
+          <div key={i} style={{ ...body, marginBottom: 8 }}>
+            {renderInline(b.text, "p" + i)}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+/* serialize a card's existing breakdown into editable markdown (starting point for the editor) */
+function serializeBreakdown(card) {
+  const b = card.breakdown;
+  const hw = (b && b.word) || card.kanji || card.kana;
+  const mean = (b && b.means) || card.meaning;
+  if (b && (b.soundEn || b.soundHi || b.review || b.logic)) {
+    const L = [`**${hw}** means “${mean}.”`, ""];
+    if (b.soundEn || b.soundHi) {
+      L.push("## SOUND TRICK" + (b.pron ? " · " + b.pron : ""));
+      if (b.soundEn) L.push(`**EN** ${b.soundEn}`);
+      if (b.soundHi) L.push(`**हि** ${b.soundHi}`);
+      L.push("");
+    }
+    if (b.parts && b.parts.length) {
+      L.push("## KANJI BREAKDOWN");
+      b.parts.forEach((p) => L.push(`- ${p.k} — ${p.text}`));
+      if (b.story) {
+        L.push("");
+        L.push(b.story);
+      }
+      L.push("");
+    }
+    if (b.logic) L.push("## PUTTING IT TOGETHER", b.logic, "");
+    if (b.review) L.push("## QUICK REVIEW", b.review);
+    return L.join("\n").trim();
+  }
+  if (b) {
+    const L = ["## THE VISUAL LINK", `**${hw}** means “${mean}.”` + (b.hook ? " " + b.hook : ""), ""];
+    if (b.parts && b.parts.length) {
+      b.parts.forEach((p) => L.push(`- ${p.k} — ${p.pos ? p.pos + " · " : ""}${p.text}`));
+      L.push("");
+    }
+    if (b.visualize) L.push("## HOW TO VISUALIZE IT", b.visualize, "");
+    if (b.sound) L.push("## SOUND HOOK", b.sound);
+    return L.join("\n").trim();
+  }
+  if (card.mnemonic) return "## HINT\n" + card.mnemonic;
+  return `## NOTE\n**${hw}** means “${mean}.”\n\n`;
+}
+
 /* dispatcher: rich format (EN+Hindi sound + radical stories) vs classic visual-link */
 function Breakdown({ b }) {
   if (b && (b.soundEn || b.soundHi || b.review || b.logic)) return <BreakdownNew b={b} />;
@@ -523,6 +648,8 @@ export default function JlptN5Srs() {
   const [revQueue, setRevQueue] = useState([]); // captured ordered card ids for the current revision session
   const [revPos, setRevPos] = useState(0); // pointer into the current revision queue
   const [revMode, setRevMode] = useState("flip"); // revision answer mode: 'flip' = Got it/Again · 'srs' = Anki grades
+  const [bdEdits, setBdEdits] = useState({}); // { cardId: markdownString } — user-edited breakdowns, global across all scopes
+  const [editing, setEditing] = useState(null); // cardId currently open in the breakdown editor, or null
   const toastTimer = useRef(null);
 
   /* ---- load once (restore progress + last screen + theme) ---- */
@@ -540,6 +667,7 @@ export default function JlptN5Srs() {
         }
         if (s.homeMode) setHomeMode(s.homeMode);
         if (s.revMode) setRevMode(s.revMode);
+        if (s.bdEdits) setBdEdits(s.bdEdits);
         if (s.revKnown) setRevKnown(s.revKnown);
         // restore the screen the user was last on
         const merged = s.scope && s.scope.type === "merged";
@@ -598,8 +726,8 @@ export default function JlptN5Srs() {
   /* ---- persist progress + last screen + theme ---- */
   useEffect(() => {
     if (!ready) return;
-    saveState({ v: 1, sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, revKnown });
-  }, [sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, revKnown, ready]);
+    saveState({ v: 1, sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, revKnown, bdEdits });
+  }, [sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, revKnown, bdEdits, ready]);
 
   /* ---- scope cards ---- */
   const scopeCards = useMemo(
@@ -704,7 +832,7 @@ export default function JlptN5Srs() {
   useEffect(() => {
     if (view !== "study") return;
     const onKey = (e) => {
-      if (showSettings) return;
+      if (showSettings || editing != null) return;
       const tag = (e.target && e.target.tagName) || "";
       if (tag === "INPUT" || tag === "TEXTAREA" || e.metaKey || e.ctrlKey || e.altKey) return;
       const k = e.key;
@@ -731,7 +859,7 @@ export default function JlptN5Srs() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line
-  }, [view, showSettings, cur, revealed, undoStack.length, sched, scopeCards, daily, settings.direction, scope, revMode]);
+  }, [view, showSettings, editing, cur, revealed, undoStack.length, sched, scopeCards, daily, settings.direction, scope, revMode]);
 
   function doGrade(g) {
     if (!cur || !revealed) return;
@@ -1163,6 +1291,8 @@ export default function JlptN5Srs() {
               setShowSettings(false);
               setConfirmReset(false);
             }}
+            bdEdits={bdEdits}
+            setBdEdits={setBdEdits}
           />
         )}
       </Shell>
@@ -1413,31 +1543,49 @@ export default function JlptN5Srs() {
                     </CopyTarget>
                   )}
 
-                  {/* mnemonic / kanji breakdown */}
-                  {(card.breakdown || card.mnemonic) && (
-                    <div
-                      style={{
-                        marginTop: 14,
-                        background: "var(--panel)",
-                        border: "1px solid " + C.line,
-                        borderRadius: 14,
-                        padding: "14px 15px",
-                      }}
-                    >
-                      {card.breakdown ? (
-                        <Breakdown b={card.breakdown} />
-                      ) : (
-                        <>
-                          <div style={{ fontSize: 10, letterSpacing: 1.6, color: C.gold, fontFamily: FJP, marginBottom: 6 }}>
-                            HINT
-                          </div>
-                          <div style={{ fontFamily: FJP, fontSize: 15, lineHeight: 1.7, color: C.ink }}>
-                            {renderMnemonic(card.mnemonic)}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
+                  {/* mnemonic / kanji breakdown — editable (markdown override stored per card) */}
+                  {(() => {
+                    const ov = bdEdits[card.id];
+                    const hasContent = ov != null || card.breakdown || card.mnemonic;
+                    if (!hasContent)
+                      return (
+                        <button onClick={() => setEditing(card.id)} className="n5press" style={ghostAdd}>
+                          ✎ Add a breakdown / note
+                        </button>
+                      );
+                    return (
+                      <div
+                        style={{
+                          marginTop: 14,
+                          background: "var(--panel)",
+                          border: "1px solid " + C.line,
+                          borderRadius: 14,
+                          padding: "14px 15px",
+                        }}
+                      >
+                        {ov != null ? (
+                          renderMarkdown(ov)
+                        ) : card.breakdown ? (
+                          <Breakdown b={card.breakdown} />
+                        ) : (
+                          <>
+                            <div style={{ fontSize: 10, letterSpacing: 1.6, color: C.gold, fontFamily: FJP, marginBottom: 6 }}>
+                              HINT
+                            </div>
+                            <div style={{ fontFamily: FJP, fontSize: 15, lineHeight: 1.7, color: C.ink }}>
+                              {renderMnemonic(card.mnemonic)}
+                            </div>
+                          </>
+                        )}
+                        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 9, marginTop: 11, borderTop: "1px solid " + C.line, paddingTop: 9 }}>
+                          {ov != null && <span style={{ fontSize: 10, color: C.gold, fontFamily: FJP, letterSpacing: 0.5 }}>✎ edited</span>}
+                          <button onClick={() => setEditing(card.id)} className="n5press" style={bdEditBtn}>
+                            Edit
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                   <div style={{ height: 4 }} />
                 </div>
               )}
@@ -1595,6 +1743,29 @@ export default function JlptN5Srs() {
             setShowSettings(false);
             setConfirmReset(false);
           }}
+          bdEdits={bdEdits}
+          setBdEdits={setBdEdits}
+        />
+      )}
+
+      {editing != null && card && (
+        <BreakdownEditor
+          title={card.kanji || card.kana}
+          initial={bdEdits[card.id] != null ? bdEdits[card.id] : serializeBreakdown(card)}
+          hasOverride={bdEdits[card.id] != null}
+          onSave={(t) => {
+            setBdEdits((m) => ({ ...m, [card.id]: t }));
+            setEditing(null);
+          }}
+          onReset={() => {
+            setBdEdits((m) => {
+              const n = { ...m };
+              delete n[card.id];
+              return n;
+            });
+            setEditing(null);
+          }}
+          onClose={() => setEditing(null)}
         />
       )}
     </Shell>
@@ -1890,7 +2061,7 @@ function CopyTarget({ children, onTap, active, flash, center }) {
   );
 }
 
-function SettingsSheet({ settings, setSettings, theme, setTheme, stats, daily, confirmReset, setConfirmReset, onReset, onClose }) {
+function SettingsSheet({ settings, setSettings, theme, setTheme, stats, daily, confirmReset, setConfirmReset, onReset, onClose, bdEdits, setBdEdits }) {
   const dirs = [
     { v: "jp", t: "JP → EN", d: "see the word, recall the meaning" },
     { v: "en", t: "EN → JP", d: "see the meaning, recall the word" },
@@ -2008,6 +2179,9 @@ function SettingsSheet({ settings, setSettings, theme, setTheme, stats, daily, c
           <Stat n={stats.mature} t="mature" color={C.good} />
         </div>
 
+        <Label style={{ marginTop: 20 }}>Custom breakdown edits</Label>
+        <CustomEdits bdEdits={bdEdits} setBdEdits={setBdEdits} />
+
         <Label style={{ marginTop: 20 }}>Reset</Label>
         {!confirmReset ? (
           <button onClick={() => setConfirmReset(true)} style={resetBtn}>
@@ -2065,3 +2239,169 @@ const resetBtn = {
   fontSize: 13.5,
   cursor: "pointer",
 };
+const ghostAdd = {
+  width: "100%",
+  marginTop: 14,
+  background: "transparent",
+  border: "1px dashed " + C.line2,
+  color: C.sub,
+  borderRadius: 13,
+  padding: "13px 0",
+  fontFamily: FJP,
+  fontWeight: 700,
+  fontSize: 13,
+  cursor: "pointer",
+};
+const bdEditBtn = {
+  background: "transparent",
+  border: "1px solid " + C.line2,
+  color: C.sub,
+  borderRadius: 9,
+  padding: "6px 16px",
+  fontFamily: FDISP,
+  fontWeight: 700,
+  fontSize: 12,
+  cursor: "pointer",
+};
+const editFieldCss = { WebkitUserSelect: "text", userSelect: "text", outline: "none" };
+
+/* ---- full-screen markdown editor for a card's breakdown ---- */
+function BreakdownEditor({ title, initial, hasOverride, onSave, onReset, onClose }) {
+  const [text, setText] = useState(initial);
+  const [tab, setTab] = useState("write");
+  const tabBtn = (k, lbl) => (
+    <button
+      onClick={() => setTab(k)}
+      style={{ flex: 1, padding: "7px 0", borderRadius: 9, border: "none", cursor: "pointer", fontFamily: FDISP, fontWeight: 800, fontSize: 12.5, background: tab === k ? C.seal : "transparent", color: tab === k ? "#fff" : C.sub }}
+    >
+      {lbl}
+    </button>
+  );
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 70, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: "100%", maxWidth: 560, height: "92vh", display: "flex", flexDirection: "column", background: C.bg1, borderTopLeftRadius: 22, borderTopRightRadius: 22, border: "1px solid " + C.line, padding: "10px 16px calc(14px + env(safe-area-inset-bottom))", animation: "n5in .25s ease" }}
+      >
+        <div style={{ width: 38, height: 4, background: C.line2, borderRadius: 4, margin: "6px auto 12px" }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <div style={{ fontFamily: FDISP, fontWeight: 800, fontSize: 17, color: C.ink, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            Edit · {title}
+          </div>
+          <div style={{ display: "flex", gap: 4, background: "var(--panel)", border: "1px solid " + C.line, borderRadius: 12, padding: 3, width: 150, flex: "0 0 auto" }}>
+            {tabBtn("write", "Write")}
+            {tabBtn("preview", "Preview")}
+          </div>
+        </div>
+        {tab === "write" ? (
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            style={{ flex: 1, width: "100%", resize: "none", background: C.bg2, color: C.ink, border: "1px solid " + C.line, borderRadius: 12, padding: "12px 13px", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 13, lineHeight: 1.6, ...editFieldCss }}
+          />
+        ) : (
+          <div className="n5-scroll" style={{ flex: 1, overflowY: "auto", background: "var(--panel)", border: "1px solid " + C.line, borderRadius: 14, padding: "14px 15px" }}>
+            {renderMarkdown(text) || <span style={{ color: C.faint, fontFamily: FJP, fontSize: 13 }}>Nothing to preview yet.</span>}
+          </div>
+        )}
+        <div style={{ fontSize: 10.5, color: C.faint, fontFamily: FJP, lineHeight: 1.5, margin: "9px 2px 11px" }}>
+          Markdown — <b>#</b> heading · <b>##</b> label · <b>-</b> list · <b>**bold**</b> · <b>*italic*</b> · furigana 漢【よみ】
+        </div>
+        <div style={{ display: "flex", gap: 9 }}>
+          <button onClick={() => onSave(text)} className="n5press" style={{ flex: 1.6, background: C.seal, color: "#fff", border: "none", borderRadius: 12, padding: "13px 0", fontFamily: FDISP, fontWeight: 800, fontSize: 14.5, cursor: "pointer" }}>
+            Save
+          </button>
+          {hasOverride && (
+            <button onClick={onReset} className="n5press" style={{ flex: 1, background: "transparent", color: C.again, border: "1px solid " + hexA(C.again, 0.5), borderRadius: 12, padding: "13px 0", fontFamily: FDISP, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+              Reset
+            </button>
+          )}
+          <button onClick={onClose} className="n5press" style={{ flex: 1, background: C.bg2, color: C.sub, border: "1px solid " + C.line, borderRadius: 12, padding: "13px 0", fontFamily: FDISP, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---- export / import custom edits (Settings) ---- */
+function CustomEdits({ bdEdits, setBdEdits }) {
+  const count = Object.keys(bdEdits || {}).length;
+  const [open, setOpen] = useState(false);
+  const [imp, setImp] = useState("");
+  const [msg, setMsg] = useState("");
+  const [confirmClear, setConfirmClear] = useState(false);
+  const flash = (t) => {
+    setMsg(t);
+    setTimeout(() => setMsg(""), 1800);
+  };
+  const doCopy = () => {
+    copyText(JSON.stringify(bdEdits || {}));
+    flash("Copied " + count + " edit" + (count === 1 ? "" : "s"));
+  };
+  const doImport = () => {
+    try {
+      const o = JSON.parse(imp);
+      if (!o || typeof o !== "object" || Array.isArray(o)) throw 0;
+      const clean = {};
+      Object.keys(o).forEach((k) => {
+        if (typeof o[k] === "string") clean[k] = o[k];
+      });
+      setBdEdits((m) => ({ ...m, ...clean }));
+      setImp("");
+      setOpen(false);
+      flash("Imported " + Object.keys(clean).length);
+    } catch (e) {
+      flash("Invalid JSON");
+    }
+  };
+  return (
+    <div>
+      <div style={{ fontFamily: FJP, fontSize: 12.5, color: C.sub, marginBottom: 9, lineHeight: 1.5 }}>
+        {count} card{count === 1 ? "" : "s"} edited · saved on this device, shown in every section &amp; revision.
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={doCopy} disabled={!count} style={{ ...resetBtn, marginTop: 0, flex: 1, opacity: count ? 1 : 0.5, cursor: count ? "pointer" : "default" }}>
+          Copy edits
+        </button>
+        <button onClick={() => setOpen((o) => !o)} style={{ ...resetBtn, marginTop: 0, flex: 1 }}>
+          Import…
+        </button>
+      </div>
+      {open && (
+        <div style={{ marginTop: 10 }}>
+          <textarea
+            value={imp}
+            onChange={(e) => setImp(e.target.value)}
+            placeholder="Paste edits JSON here"
+            spellCheck={false}
+            style={{ width: "100%", height: 110, resize: "none", background: C.bg2, color: C.ink, border: "1px solid " + C.line, borderRadius: 12, padding: "10px 12px", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, lineHeight: 1.5, ...editFieldCss }}
+          />
+          <button onClick={doImport} style={{ ...resetBtn, marginTop: 8, background: C.seal, color: "#fff", border: "none" }}>
+            Apply import (merge)
+          </button>
+        </div>
+      )}
+      {count > 0 &&
+        (!confirmClear ? (
+          <button onClick={() => setConfirmClear(true)} style={{ ...resetBtn, color: C.again, border: "1px solid " + hexA(C.again, 0.4) }}>
+            Clear all edits
+          </button>
+        ) : (
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button onClick={() => { setBdEdits({}); setConfirmClear(false); }} style={{ ...resetBtn, marginTop: 0, flex: 1, background: C.again, color: "#fff", border: "none" }}>
+              Erase all edits
+            </button>
+            <button onClick={() => setConfirmClear(false)} style={{ ...resetBtn, marginTop: 0, flex: 1 }}>
+              Cancel
+            </button>
+          </div>
+        ))}
+      {msg && <div style={{ fontFamily: FJP, fontSize: 12, color: C.good, marginTop: 9 }}>{msg}</div>}
+    </div>
+  );
+}
