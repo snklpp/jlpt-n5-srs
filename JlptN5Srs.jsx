@@ -522,7 +522,7 @@ export default function JlptN5Srs() {
   const [revKnown, setRevKnown] = useState({}); // { cardId: true } — revision "got it" set
   const [revQueue, setRevQueue] = useState([]); // captured ordered card ids for the current revision session
   const [revPos, setRevPos] = useState(0); // pointer into the current revision queue
-  const [revGrading, setRevGrading] = useState(false); // show SRS grade bar for current revision card
+  const [revMode, setRevMode] = useState("flip"); // revision answer mode: 'flip' = Got it/Again · 'srs' = Anki grades
   const toastTimer = useRef(null);
 
   /* ---- load once (restore progress + last screen + theme) ---- */
@@ -539,6 +539,7 @@ export default function JlptN5Srs() {
           else setDaily({ extraNew: 0, ...d });
         }
         if (s.homeMode) setHomeMode(s.homeMode);
+        if (s.revMode) setRevMode(s.revMode);
         if (s.revKnown) setRevKnown(s.revKnown);
         // restore the screen the user was last on
         const merged = s.scope && s.scope.type === "merged";
@@ -597,8 +598,8 @@ export default function JlptN5Srs() {
   /* ---- persist progress + last screen + theme ---- */
   useEffect(() => {
     if (!ready) return;
-    saveState({ v: 1, sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revKnown });
-  }, [sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revKnown, ready]);
+    saveState({ v: 1, sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, revKnown });
+  }, [sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, revKnown, ready]);
 
   /* ---- scope cards ---- */
   const scopeCards = useMemo(
@@ -682,7 +683,6 @@ export default function JlptN5Srs() {
     setRevPos(0);
     setCur(null);
     setRevealed(false);
-    setRevGrading(false);
     setUndoStack([]);
     setView("study");
   }
@@ -697,7 +697,6 @@ export default function JlptN5Srs() {
       });
     }
     setRevealed(false);
-    setRevGrading(false);
     setRevPos((p) => p + 1);
   }
 
@@ -717,9 +716,13 @@ export default function JlptN5Srs() {
         return;
       }
       if (scope.type === "merged") {
+        if (revMode === "srs") {
+          if (k >= "1" && k <= "4") { e.preventDefault(); doGrade(parseInt(k, 10) - 1); return; } // 1-4 = grade
+          if (k === " " || k === "Enter") { e.preventDefault(); doGrade(2); return; } // space = Good
+          return;
+        }
         if (k === " " || k === "Enter") { e.preventDefault(); revAdvance(true); return; } // space = Got it
         if (k === "x" || k === "X") { e.preventDefault(); revAdvance(false); return; } // x = Again
-        if (revGrading && k >= "1" && k <= "4") { e.preventDefault(); doGrade(parseInt(k, 10) - 1); }
         return;
       }
       if (k === " " || k === "Enter") { e.preventDefault(); doGrade(2); return; } // space = Good once revealed
@@ -728,7 +731,7 @@ export default function JlptN5Srs() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line
-  }, [view, showSettings, cur, revealed, undoStack.length, sched, scopeCards, daily, settings.direction, scope, revGrading]);
+  }, [view, showSettings, cur, revealed, undoStack.length, sched, scopeCards, daily, settings.direction, scope, revMode]);
 
   function doGrade(g) {
     if (!cur || !revealed) return;
@@ -753,7 +756,6 @@ export default function JlptN5Srs() {
         else delete n[id];
         return n;
       });
-      setRevGrading(false);
       setRevealed(false);
       setRevPos((p) => p + 1);
       setActiveGrade(-1);
@@ -1247,6 +1249,15 @@ export default function JlptN5Srs() {
           </div>
         </div>
         {scope.type !== "merged" && <IconBtn onClick={doUndo} label="↶" disabled={!undoStack.length} />}
+        {scope.type === "merged" && (
+          <div style={revModeTog}>
+            {[["flip", "Got it"], ["srs", "SRS"]].map(([m, lbl]) => (
+              <button key={m} onClick={() => setRevMode(m)} className="n5press" style={revModeSeg(revMode === m)}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+        )}
         <IconBtn onClick={() => setShowSettings(true)} label="⚙" />
       </header>
 
@@ -1436,23 +1447,21 @@ export default function JlptN5Srs() {
           {/* controls (fixed height slot) */}
           {revealed ? (
             scope.type === "merged" ? (
-              revGrading ? (
+              revMode === "srs" ? (
                 srsGradeBar
               ) : (
                 <div style={gradeBar}>
                   <button onClick={() => revAdvance(false)} className="n5press" style={revCtl(C.learn, 1)}>
                     <span style={{ fontSize: 18, color: C.learn, lineHeight: 1 }}>↻</span>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: C.learn, fontFamily: FDISP }}>Again</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: C.learn, fontFamily: FDISP }}>
+                      Again<span style={{ color: hexA(C.learn, 0.55), fontSize: 11, marginLeft: 6, fontWeight: 700 }} className="n5-kbd-hint">x</span>
+                    </span>
                   </button>
                   <button onClick={() => revAdvance(true)} className="n5press" style={{ ...revCtl(C.good, 1.5), background: hexA(C.good, 0.12) }}>
                     <span style={{ fontSize: 18, color: C.good, lineHeight: 1 }}>✓</span>
                     <span style={{ fontSize: 16, fontWeight: 800, color: C.good, fontFamily: FDISP }}>
                       Got it<span style={{ color: hexA(C.good, 0.55), fontSize: 11, marginLeft: 6, fontWeight: 700 }} className="n5-kbd-hint">␣</span>
                     </span>
-                  </button>
-                  <button onClick={() => setRevGrading(true)} className="n5press" style={revCtl(C.sub, 0.75)}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: C.sub, fontFamily: FDISP }}>SRS</span>
-                    <span style={{ fontSize: 9, color: C.faint, fontFamily: FJP, letterSpacing: 0.5 }}>grade</span>
                   </button>
                 </div>
               )
@@ -1694,6 +1703,29 @@ const modeTab = (active) => ({
   fontFamily: FDISP,
   fontWeight: 800,
   fontSize: 13.5,
+  background: active ? C.seal : "transparent",
+  color: active ? "#fff" : C.sub,
+  transition: "background .15s, color .15s",
+});
+const revModeTog = {
+  display: "flex",
+  gap: 3,
+  background: "var(--panel)",
+  border: "1px solid " + C.line,
+  borderRadius: 11,
+  padding: 3,
+  flex: "0 0 auto",
+};
+const revModeSeg = (active) => ({
+  border: "none",
+  borderRadius: 8,
+  padding: "6px 9px",
+  cursor: "pointer",
+  fontFamily: FDISP,
+  fontWeight: 800,
+  fontSize: 11.5,
+  lineHeight: 1,
+  whiteSpace: "nowrap",
   background: active ? C.seal : "transparent",
   color: active ? "#fff" : C.sub,
   transition: "background .15s, color .15s",
