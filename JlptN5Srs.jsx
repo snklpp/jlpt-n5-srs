@@ -21,6 +21,39 @@ DECK.forEach((s, si) =>
 const CARD_BY_ID = {};
 CARDS.forEach((c) => (CARD_BY_ID[c.id] = c));
 
+/* ----- "Revision" view: merged sections across N5+N4+N3 -----
+   Each merged group pools several source sections (by type, then theme).
+   Because CARDS is in section order (N5 → N4 → N3), collecting a group's
+   cards by scanning CARDS yields an easiest-first (N5→N4→N3) order. */
+const MERGED_DEF = [
+  ["Verbs · Group 1 (u-verbs)", [7, 22, 26]],
+  ["Verbs · Group 2 (ru-verbs)", [8, 23, 27]],
+  ["Verbs · Group 3 & Irregular", [24, 28]],
+  ["i-Adjectives", [9, 29]],
+  ["na-Adjectives", [10, 30]],
+  ["Adverbs, Conjunctions & Expressions", [11, 13, 25, 31]],
+  ["Numbers, Counters & Quantity", [0, 44]],
+  ["Time, Dates & Seasons", [1, 15, 42]],
+  ["People & Relationships", [4, 17, 32]],
+  ["Body, Health & Feelings", [16, 33, 34]],
+  ["Food & Drink", [3, 36]],
+  ["Nature, Weather & Animals", [2, 18, 35]],
+  ["Places, Home, Travel & Directions", [5, 14, 19, 43]],
+  ["Clothes, Objects & Daily Items", [6, 12, 20, 41]],
+  ["Society, Work, Study & Culture", [21, 37, 38, 39, 40]],
+  ["Abstract, Concepts & Mind", [45, 46, 47, 48]],
+  ["Katakana loanwords", [49]],
+];
+const SI_TO_MG = {};
+MERGED_DEF.forEach(([, sis], gi) => sis.forEach((si) => (SI_TO_MG[si] = gi)));
+const MERGED = MERGED_DEF.map(([name]) => ({ name, ids: [], levels: {} }));
+CARDS.forEach((c) => {
+  const gi = SI_TO_MG[c.si];
+  if (gi == null) return;
+  MERGED[gi].ids.push(c.id);
+  MERGED[gi].levels[c.level] = (MERGED[gi].levels[c.level] || 0) + 1;
+});
+
 /* ============================ persistence ================================= */
 const KEY = "jlpt_n5_srs_v1";
 let _mem = null; // in-memory fallback when window.storage is blocked
@@ -484,6 +517,12 @@ export default function JlptN5Srs() {
   const [activeGrade, setActiveGrade] = useState(-1);
   const [showSettings, setShowSettings] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [homeMode, setHomeMode] = useState("level"); // 'level' | 'revision'
+  const [confirmRevReset, setConfirmRevReset] = useState(false);
+  const [revKnown, setRevKnown] = useState({}); // { cardId: true } — revision "got it" set
+  const [revQueue, setRevQueue] = useState([]); // captured ordered card ids for the current revision session
+  const [revPos, setRevPos] = useState(0); // pointer into the current revision queue
+  const [revGrading, setRevGrading] = useState(false); // show SRS grade bar for current revision card
   const toastTimer = useRef(null);
 
   /* ---- load once (restore progress + last screen + theme) ---- */
@@ -499,9 +538,15 @@ export default function JlptN5Srs() {
           if (d.date !== todayStr(Date.now())) setDaily({ date: todayStr(Date.now()), newDone: 0, reviewsToday: 0, extraNew: 0 });
           else setDaily({ extraNew: 0, ...d });
         }
+        if (s.homeMode) setHomeMode(s.homeMode);
+        if (s.revKnown) setRevKnown(s.revKnown);
         // restore the screen the user was last on
-        if (s.scope) setScope(s.scope);
-        if (s.view === "study") {
+        const merged = s.scope && s.scope.type === "merged";
+        if (s.scope && !merged) setScope(s.scope);
+        if (merged) {
+          // don't restore mid-revision-session; return to the revision home
+          setHomeMode("revision");
+        } else if (s.view === "study") {
           setView("study");
           if (s.cur && CARD_BY_ID[s.cur.id]) {
             setCur(s.cur);
@@ -552,8 +597,8 @@ export default function JlptN5Srs() {
   /* ---- persist progress + last screen + theme ---- */
   useEffect(() => {
     if (!ready) return;
-    saveState({ v: 1, sched, daily, settings, theme, view, scope, cur, revealed });
-  }, [sched, daily, settings, theme, view, scope, cur, revealed, ready]);
+    saveState({ v: 1, sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revKnown });
+  }, [sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revKnown, ready]);
 
   /* ---- scope cards ---- */
   const scopeCards = useMemo(
@@ -562,6 +607,8 @@ export default function JlptN5Srs() {
         ? CARDS
         : scope.type === "level"
         ? CARDS.filter((c) => c.level === scope.level)
+        : scope.type === "merged"
+        ? (scope.mg === -1 ? MERGED.flatMap((g) => g.ids) : MERGED[scope.mg].ids).map((id) => CARD_BY_ID[id])
         : CARDS.filter((c) => c.si === scope.si),
     [scope]
   );
@@ -593,9 +640,9 @@ export default function JlptN5Srs() {
     return m === "mix" ? (Math.random() < 0.5 ? "jp" : "en") : m;
   };
 
-  /* ---- auto-advance when no current card (incl. learning becoming due) ---- */
+  /* ---- auto-advance when no current card (SRS study only; revision is linear) ---- */
   useEffect(() => {
-    if (!ready || view !== "study" || cur) return;
+    if (!ready || view !== "study" || cur || scope.type === "merged") return;
     const n = pickNext(scopeCards, sched, daily, now);
     if (n) {
       n.dir = dirFor();
@@ -605,12 +652,53 @@ export default function JlptN5Srs() {
     // eslint-disable-next-line
   }, [now, cur, ready, view, scopeCards, sched, daily, settings.newPerDay]);
 
+  /* ---- revision: drive the current card from the linear queue position ---- */
+  useEffect(() => {
+    if (view !== "study" || scope.type !== "merged") return;
+    const id = revQueue[revPos];
+    if (id && (!cur || cur.id !== id)) {
+      setCur({ id, isNew: !sched[id], dir: settings.direction === "en" ? "en" : "jp" });
+    } else if (!id && cur) {
+      setCur(null); // reached the end → done screen
+    }
+    // eslint-disable-next-line
+  }, [view, scope, revPos, revQueue]);
+
   function startStudy(sc) {
     setScope(sc);
     setCur(null);
     setRevealed(false);
     setUndoStack([]);
     setView("study");
+  }
+
+  /* ---- revision (merged sections, linear flip-through) ---- */
+  function startRevision(mg, unknownOnly) {
+    const base = mg === -1 ? MERGED.flatMap((g) => g.ids) : MERGED[mg].ids;
+    let q = unknownOnly ? base.filter((id) => !revKnown[id]) : base;
+    if (!q.length) q = base; // nothing unknown left → review everything
+    setScope({ type: "merged", mg });
+    setRevQueue(q);
+    setRevPos(0);
+    setCur(null);
+    setRevealed(false);
+    setRevGrading(false);
+    setUndoStack([]);
+    setView("study");
+  }
+  function revAdvance(markKnown) {
+    if (cur) {
+      const id = cur.id;
+      setRevKnown((k) => {
+        const n = { ...k };
+        if (markKnown) n[id] = true;
+        else delete n[id];
+        return n;
+      });
+    }
+    setRevealed(false);
+    setRevGrading(false);
+    setRevPos((p) => p + 1);
   }
 
   /* ---- keyboard shortcuts (desktop/web): space reveal · 1-4 grade · z undo · esc back ---- */
@@ -628,13 +716,19 @@ export default function JlptN5Srs() {
         if (k === " " || k === "Enter") { e.preventDefault(); doReveal(); }
         return;
       }
+      if (scope.type === "merged") {
+        if (k === " " || k === "Enter") { e.preventDefault(); revAdvance(true); return; } // space = Got it
+        if (k === "x" || k === "X") { e.preventDefault(); revAdvance(false); return; } // x = Again
+        if (revGrading && k >= "1" && k <= "4") { e.preventDefault(); doGrade(parseInt(k, 10) - 1); }
+        return;
+      }
       if (k === " " || k === "Enter") { e.preventDefault(); doGrade(2); return; } // space = Good once revealed
       if (k >= "1" && k <= "4") { e.preventDefault(); doGrade(parseInt(k, 10) - 1); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line
-  }, [view, showSettings, cur, revealed, undoStack.length, sched, scopeCards, daily, settings.direction]);
+  }, [view, showSettings, cur, revealed, undoStack.length, sched, scopeCards, daily, settings.direction, scope, revGrading]);
 
   function doGrade(g) {
     if (!cur || !revealed) return;
@@ -651,6 +745,20 @@ export default function JlptN5Srs() {
     setUndoStack((u) => [...u, { id, prevSched: prev, prevDaily: { ...daily }, dir: cur.dir, isNew: cur.isNew }].slice(-60));
     setSched(nSched);
     setDaily(nDaily);
+    if (scope.type === "merged") {
+      // revision: grading also schedules in SRS; Again leaves it "unknown", else "got it"
+      setRevKnown((k) => {
+        const n = { ...k };
+        if (g > 0) n[id] = true;
+        else delete n[id];
+        return n;
+      });
+      setRevGrading(false);
+      setRevealed(false);
+      setRevPos((p) => p + 1);
+      setActiveGrade(-1);
+      return;
+    }
     const n = pickNext(scopeCards, nSched, nDaily, Date.now());
     if (n) n.dir = dirFor();
     setCur(n);
@@ -778,6 +886,14 @@ export default function JlptN5Srs() {
     });
   }, [sched, now]);
 
+  /* ---- revision: per-merged-group "got it" progress ---- */
+  const revStats = useMemo(
+    () => MERGED.map((g) => ({ total: g.ids.length, known: g.ids.reduce((a, id) => a + (revKnown[id] ? 1 : 0), 0) })),
+    [revKnown]
+  );
+  const revTotalKnown = revStats.reduce((a, s) => a + s.known, 0);
+  const revTotalCards = MERGED.reduce((a, g) => a + g.ids.length, 0);
+
   if (!ready) {
     return (
       <Shell>
@@ -806,6 +922,15 @@ export default function JlptN5Srs() {
         </header>
 
         <div className="n5-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "8px 14px 18px" }}>
+          <div style={modeToggle}>
+            {[["level", "By Level"], ["revision", "Revision"]].map(([m, lab]) => (
+              <button key={m} onClick={() => setHomeMode(m)} className="n5press" style={modeTab(homeMode === m)}>
+                {lab}
+              </button>
+            ))}
+          </div>
+
+          {homeMode === "level" && (<>
           <div className="n5stagger" style={heroCard}>
             <div style={{ display: "flex", alignItems: "center", gap: 15 }}>
               <Ring
@@ -932,6 +1057,86 @@ export default function JlptN5Srs() {
               </div>
             );
           })}
+          </>)}
+
+          {homeMode === "revision" && (<>
+            <div className="n5stagger" style={heroCard}>
+              <div style={{ display: "flex", alignItems: "center", gap: 15 }}>
+                <Ring
+                  pct={revTotalCards ? revTotalKnown / revTotalCards : 0}
+                  size={66}
+                  stroke={6}
+                  color={revTotalCards && revTotalKnown >= revTotalCards ? C.good : C.seal}
+                >
+                  <span style={{ fontFamily: FDISP, fontWeight: 900, fontSize: 16, color: C.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
+                    {Math.round((revTotalCards ? revTotalKnown / revTotalCards : 0) * 100)}
+                    <span style={{ fontSize: 8.5, color: C.sub, fontWeight: 700 }}>%</span>
+                  </span>
+                </Ring>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: FJP, fontSize: 10.5, letterSpacing: 2.5, color: C.faint }}>REVISION · N5+N4+N3</div>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 4 }}>
+                    <span style={{ fontFamily: FDISP, fontWeight: 900, fontSize: 27, color: C.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{revTotalKnown}</span>
+                    <span style={{ fontFamily: FJP, fontSize: 12.5, color: C.sub }}>/ {revTotalCards} got it</span>
+                  </div>
+                  <div style={{ fontFamily: FJP, fontSize: 12, color: C.sub, marginTop: 4 }}>Merged by type → theme · easiest first</div>
+                </div>
+              </div>
+            </div>
+            <button onClick={() => startRevision(-1, false)} className="n5press n5lift n5stagger" style={{ ...allCardBtn, animationDelay: ".05s" }}>
+              <div>
+                <div style={{ fontFamily: FDISP, fontWeight: 800, fontSize: 18, color: INK_GOLD }}>Revise everything</div>
+                <div style={{ fontSize: 12.5, color: "rgba(42,28,6,0.68)", marginTop: 3, fontFamily: FJP }}>
+                  All {revTotalCards} words · {MERGED.length} merged sets
+                </div>
+              </div>
+              <span style={{ fontFamily: FDISP, fontWeight: 900, fontSize: 22, color: INK_GOLD }}>→</span>
+            </button>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "20px 4px 11px" }}>
+              <span style={{ fontSize: 10.5, letterSpacing: 2, color: C.faint, fontFamily: FJP }}>MERGED SECTIONS · {MERGED.length}</span>
+              {revTotalKnown > 0 &&
+                (confirmRevReset ? (
+                  <span style={{ display: "flex", gap: 6 }}>
+                    <button
+                      onClick={() => { setRevKnown({}); setConfirmRevReset(false); fireToast("Revision progress reset"); }}
+                      className="n5press"
+                      style={{ ...studyAllPill, background: hexA(C.again, 0.14), border: "1px solid " + hexA(C.again, 0.5), color: C.again }}
+                    >
+                      Reset
+                    </button>
+                    <button onClick={() => setConfirmRevReset(false)} className="n5press" style={studyAllPill}>Cancel</button>
+                  </span>
+                ) : (
+                  <button onClick={() => setConfirmRevReset(true)} className="n5press" style={studyAllPill}>Reset progress</button>
+                ))}
+            </div>
+            {MERGED.map((g, gi) => {
+              const rs = revStats[gi];
+              const pct = rs.total ? Math.round((rs.known / rs.total) * 100) : 0;
+              const done = rs.total > 0 && rs.known === rs.total;
+              return (
+                <button key={gi} onClick={() => startRevision(gi, rs.known > 0 && !done)} className="n5press n5lift" style={secBtn}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: FJP, fontWeight: 700, fontSize: 15, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {g.name}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 7 }}>
+                      <div style={{ flex: 1, height: 5, background: C.bg2, borderRadius: 5, overflow: "hidden" }}>
+                        <div style={{ width: pct + "%", height: "100%", background: done ? C.good : `linear-gradient(90deg, ${hexA(C.seal, 0.85)}, ${C.seal})`, borderRadius: 5, transition: "width .45s ease" }} />
+                      </div>
+                      <span style={{ fontSize: 11, color: C.faint, fontVariantNumeric: "tabular-nums" }}>{rs.known}/{rs.total}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 5, marginTop: 6 }}>
+                      {["N5", "N4", "N3"].map((lv) => (g.levels[lv] ? <span key={lv} style={lvChip(lv)}>{lv} · {g.levels[lv]}</span> : null))}
+                    </div>
+                  </div>
+                  <div style={{ marginLeft: 12, flex: "0 0 auto" }}>
+                    {done ? <span style={doneBadge(C.good)} title="All got it">✓</span> : <span style={{ fontFamily: FDISP, fontWeight: 900, fontSize: 18, color: C.seal }}>→</span>}
+                  </div>
+                </button>
+              );
+            })}
+          </>)}
           <div style={{ height: 6 }} />
         </div>
 
@@ -968,6 +1173,53 @@ export default function JlptN5Srs() {
   const hasKanji = card && card.kanji && card.kanji !== card.kana;
   const promptWord = card ? (dir === "en" ? card.meaning || card.kana : hasKanji ? card.kanji : card.kana) : "";
 
+  /* SRS grade bar (Again/Hard/Good/Easy) — used in normal study and the optional revision grade */
+  const srsGradeBar = cur ? (
+    <div style={gradeBar}>
+      {[
+        { g: 0, label: "Again", color: C.again },
+        { g: 1, label: "Hard", color: C.hard },
+        { g: 2, label: "Good", color: C.good },
+        { g: 3, label: "Easy", color: C.easy },
+      ].map((b, i) => {
+        const span = fmtSpan(applyGrade(sched[cur.id] || null, b.g, now).due - now);
+        return (
+          <button
+            key={b.g}
+            className="n5press"
+            onClick={() => doGrade(b.g)}
+            onPointerDown={() => setActiveGrade(b.g)}
+            onPointerUp={() => setActiveGrade(-1)}
+            onPointerLeave={() => setActiveGrade((a) => (a === b.g ? -1 : a))}
+            style={{
+              flex: 1,
+              height: "100%",
+              borderTop: "none",
+              borderRight: "none",
+              borderBottom: "none",
+              borderLeft: i === 0 ? "none" : "1px solid " + C.line,
+              background: activeGrade === b.g ? hexA(b.color, 0.18) : "transparent",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 3,
+              cursor: "pointer",
+              position: "relative",
+              transition: "background .08s",
+            }}
+          >
+            <span className="n5-kbd-hint" style={{ position: "absolute", top: 6, fontSize: 9, color: hexA(b.color, 0.55), fontFamily: FJP, fontWeight: 700 }}>
+              {b.g + 1}
+            </span>
+            <span style={{ fontSize: 11.5, color: hexA(b.color, 0.85), fontVariantNumeric: "tabular-nums", fontFamily: FJP }}>{span}</span>
+            <span style={{ fontSize: 16, fontWeight: 700, color: b.color, fontFamily: FDISP, letterSpacing: 0.2 }}>{b.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  ) : null;
+
   return (
     <Shell>
       <Style />
@@ -985,38 +1237,68 @@ export default function JlptN5Srs() {
               textOverflow: "ellipsis",
             }}
           >
-            {scope.type === "all" ? "All sections" : scope.type === "level" ? scope.level + " · all sections" : SECTIONS[scope.si]}
+            {scope.type === "all"
+              ? "All sections"
+              : scope.type === "level"
+              ? scope.level + " · all sections"
+              : scope.type === "merged"
+              ? scope.mg === -1 ? "Revise everything" : MERGED[scope.mg].name
+              : SECTIONS[scope.si]}
           </div>
         </div>
-        <IconBtn onClick={doUndo} label="↶" disabled={!undoStack.length} />
+        {scope.type !== "merged" && <IconBtn onClick={doUndo} label="↶" disabled={!undoStack.length} />}
         <IconBtn onClick={() => setShowSettings(true)} label="⚙" />
       </header>
 
-      <div style={ctr}>
-        <Counter label="NEW" n={counters.newShow} color={C.gold} />
-        <Counter label="LRN" n={counters.learn} color={C.learn} />
-        <Counter label="DUE" n={counters.due} color={C.easy} />
-      </div>
-      {(dayProgress.done > 0 || dayProgress.remaining > 0) && (
-        <div style={{ padding: "0 18px 2px", flex: "0 0 auto" }}>
-          <div style={{ height: 5, background: "var(--track)", borderRadius: 5, overflow: "hidden" }}>
+      {scope.type === "merged" ? (
+        <div style={{ padding: "9px 18px 4px", flex: "0 0 auto" }}>
+          <div style={{ height: 6, background: "var(--track)", borderRadius: 6, overflow: "hidden" }}>
             <div
               style={{
-                width: Math.round(dayProgress.pct * 100) + "%",
+                width: (revQueue.length ? (revPos / revQueue.length) * 100 : 0) + "%",
                 height: "100%",
-                borderRadius: 5,
-                background: `linear-gradient(90deg, ${C.gold}, ${C.good})`,
-                transition: "width .35s ease",
+                borderRadius: 6,
+                background: `linear-gradient(90deg, ${hexA(C.seal, 0.85)}, ${C.seal})`,
+                transition: "width .3s ease",
               }}
             />
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
-            <span style={{ fontSize: 9.5, letterSpacing: 1, color: C.faint, fontFamily: FJP }}>TODAY</span>
+            <span style={{ fontSize: 9.5, letterSpacing: 1, color: C.faint, fontFamily: FJP }}>REVISION</span>
             <span style={{ fontSize: 9.5, color: C.faint, fontFamily: FJP, fontVariantNumeric: "tabular-nums" }}>
-              {dayProgress.done} done · {dayProgress.remaining} left
+              {Math.min(revPos + 1, revQueue.length)} / {revQueue.length}
             </span>
           </div>
         </div>
+      ) : (
+        <>
+          <div style={ctr}>
+            <Counter label="NEW" n={counters.newShow} color={C.gold} />
+            <Counter label="LRN" n={counters.learn} color={C.learn} />
+            <Counter label="DUE" n={counters.due} color={C.easy} />
+          </div>
+          {(dayProgress.done > 0 || dayProgress.remaining > 0) && (
+            <div style={{ padding: "0 18px 2px", flex: "0 0 auto" }}>
+              <div style={{ height: 5, background: "var(--track)", borderRadius: 5, overflow: "hidden" }}>
+                <div
+                  style={{
+                    width: Math.round(dayProgress.pct * 100) + "%",
+                    height: "100%",
+                    borderRadius: 5,
+                    background: `linear-gradient(90deg, ${C.gold}, ${C.good})`,
+                    transition: "width .35s ease",
+                  }}
+                />
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+                <span style={{ fontSize: 9.5, letterSpacing: 1, color: C.faint, fontFamily: FJP }}>TODAY</span>
+                <span style={{ fontSize: 9.5, color: C.faint, fontFamily: FJP, fontVariantNumeric: "tabular-nums" }}>
+                  {dayProgress.done} done · {dayProgress.remaining} left
+                </span>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {card ? (
@@ -1038,8 +1320,9 @@ export default function JlptN5Srs() {
             }}
           >
             <div style={{ padding: "22px 20px 26px", minHeight: "100%", display: "flex", flexDirection: "column" }}>
-              {/* section tag */}
-              <div style={{ textAlign: "center", marginBottom: 14 }}>
+              {/* section tag (+ level badge in revision) */}
+              <div style={{ textAlign: "center", marginBottom: 14, display: "flex", justifyContent: "center", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+                {scope.type === "merged" && card && <span style={lvChip(card.level)}>{card.level}</span>}
                 <span
                   style={{
                     fontSize: 10.5,
@@ -1150,53 +1433,32 @@ export default function JlptN5Srs() {
             </div>
           </div>
 
-          {/* grade bar / reveal hint (fixed height slot) */}
+          {/* controls (fixed height slot) */}
           {revealed ? (
-            <div style={gradeBar}>
-              {[
-                { g: 0, label: "Again", color: C.again },
-                { g: 1, label: "Hard", color: C.hard },
-                { g: 2, label: "Good", color: C.good },
-                { g: 3, label: "Easy", color: C.easy },
-              ].map((b, i) => {
-                const span = fmtSpan(applyGrade(sched[cur.id] || null, b.g, now).due - now);
-                return (
-                  <button
-                    key={b.g}
-                    className="n5press"
-                    onClick={() => doGrade(b.g)}
-                    onPointerDown={() => setActiveGrade(b.g)}
-                    onPointerUp={() => setActiveGrade(-1)}
-                    onPointerLeave={() => setActiveGrade((a) => (a === b.g ? -1 : a))}
-                    style={{
-                      flex: 1,
-                      height: "100%",
-                      border: "none",
-                      borderLeft: i === 0 ? "none" : "1px solid " + C.line,
-                      background: activeGrade === b.g ? hexA(b.color, 0.18) : "transparent",
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 3,
-                      cursor: "pointer",
-                      position: "relative",
-                      transition: "background .08s",
-                    }}
-                  >
-                    <span className="n5-kbd-hint" style={{ position: "absolute", top: 6, fontSize: 9, color: hexA(b.color, 0.55), fontFamily: FJP, fontWeight: 700 }}>
-                      {b.g + 1}
-                    </span>
-                    <span style={{ fontSize: 11.5, color: hexA(b.color, 0.85), fontVariantNumeric: "tabular-nums", fontFamily: FJP }}>
-                      {span}
-                    </span>
-                    <span style={{ fontSize: 16, fontWeight: 700, color: b.color, fontFamily: FDISP, letterSpacing: 0.2 }}>
-                      {b.label}
+            scope.type === "merged" ? (
+              revGrading ? (
+                srsGradeBar
+              ) : (
+                <div style={gradeBar}>
+                  <button onClick={() => revAdvance(false)} className="n5press" style={revCtl(C.learn, 1)}>
+                    <span style={{ fontSize: 18, color: C.learn, lineHeight: 1 }}>↻</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: C.learn, fontFamily: FDISP }}>Again</span>
+                  </button>
+                  <button onClick={() => revAdvance(true)} className="n5press" style={{ ...revCtl(C.good, 1.5), background: hexA(C.good, 0.12) }}>
+                    <span style={{ fontSize: 18, color: C.good, lineHeight: 1 }}>✓</span>
+                    <span style={{ fontSize: 16, fontWeight: 800, color: C.good, fontFamily: FDISP }}>
+                      Got it<span style={{ color: hexA(C.good, 0.55), fontSize: 11, marginLeft: 6, fontWeight: 700 }} className="n5-kbd-hint">␣</span>
                     </span>
                   </button>
-                );
-              })}
-            </div>
+                  <button onClick={() => setRevGrading(true)} className="n5press" style={revCtl(C.sub, 0.75)}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: C.sub, fontFamily: FDISP }}>SRS</span>
+                    <span style={{ fontSize: 9, color: C.faint, fontFamily: FJP, letterSpacing: 0.5 }}>grade</span>
+                  </button>
+                </div>
+              )
+            ) : (
+              srsGradeBar
+            )
           ) : (
             <div style={{ ...gradeBar, justifyContent: "center", alignItems: "center", borderTop: "1px solid " + C.line }}>
               <button
@@ -1210,39 +1472,68 @@ export default function JlptN5Srs() {
         </>
       ) : (
         /* ----- done for now ----- */
-        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "20px 28px", textAlign: "center", animation: "n5pop .3s" }}>
-          <div style={{ width: 64, height: 64, borderRadius: 40, border: "2px solid " + hexA(C.good, 0.5), display: "grid", placeItems: "center", color: C.good, fontSize: 30, marginBottom: 18 }}>
-            ✓
-          </div>
-          <div style={{ fontFamily: FDISP, fontWeight: 800, fontSize: 22, color: C.ink }}>Done for now</div>
-          <div style={{ fontFamily: FJP, fontSize: 14, color: C.sub, marginTop: 8 }}>
-            {daily.reviewsToday || 0} card{(daily.reviewsToday || 0) === 1 ? "" : "s"} studied today
-          </div>
-          <div style={{ marginTop: 18, fontFamily: FJP, fontSize: 13.5, color: C.faint, lineHeight: 1.6 }}>
-            {nextDue !== Infinity ? (
-              <>Next card due {fmtWhen(nextDue - now)}</>
-            ) : counters.newLeft > 0 ? (
-              <>Daily new-card limit reached.</>
-            ) : scope.type === "all" ? (
-              <>Every card in the collection has been seen. 🎉</>
-            ) : scope.type === "level" ? (
-              <>Every {scope.level} card has been introduced. 🎉</>
-            ) : (
-              <>This section is fully introduced.</>
+        scope.type === "merged" ? (
+          (() => {
+            const unknown = revQueue.filter((id) => !revKnown[id]).length;
+            const got = revQueue.length - unknown;
+            return (
+              <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "20px 28px", textAlign: "center", animation: "n5pop .3s" }}>
+                <div style={{ width: 64, height: 64, borderRadius: 40, border: "2px solid " + hexA(unknown ? C.seal : C.good, 0.5), display: "grid", placeItems: "center", color: unknown ? C.seal : C.good, fontSize: 30, marginBottom: 18 }}>
+                  {unknown ? "↻" : "✓"}
+                </div>
+                <div style={{ fontFamily: FDISP, fontWeight: 800, fontSize: 22, color: C.ink }}>Revision pass complete</div>
+                <div style={{ fontFamily: FJP, fontSize: 14, color: C.sub, marginTop: 8 }}>
+                  <b style={{ color: C.good }}>{got}</b> got it · <b style={{ color: unknown ? C.seal : C.faint }}>{unknown}</b> to review · {revQueue.length} total
+                </div>
+                {unknown > 0 && (
+                  <button onClick={() => startRevision(scope.mg, true)} style={moreBtn}>
+                    Review the {unknown} you missed
+                  </button>
+                )}
+                <button onClick={() => startRevision(scope.mg, false)} style={{ ...moreBtn, background: unknown ? "transparent" : C.seal, color: unknown ? C.sub : "#fff", border: unknown ? "1px solid " + C.line : "none", marginTop: 10 }}>
+                  Revise this set again
+                </button>
+                <button onClick={() => setView("home")} style={{ ...moreBtn, background: "transparent", color: C.sub, border: "1px solid " + C.line, marginTop: 10 }}>
+                  Back to revision
+                </button>
+              </div>
+            );
+          })()
+        ) : (
+          <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "20px 28px", textAlign: "center", animation: "n5pop .3s" }}>
+            <div style={{ width: 64, height: 64, borderRadius: 40, border: "2px solid " + hexA(C.good, 0.5), display: "grid", placeItems: "center", color: C.good, fontSize: 30, marginBottom: 18 }}>
+              ✓
+            </div>
+            <div style={{ fontFamily: FDISP, fontWeight: 800, fontSize: 22, color: C.ink }}>Done for now</div>
+            <div style={{ fontFamily: FJP, fontSize: 14, color: C.sub, marginTop: 8 }}>
+              {daily.reviewsToday || 0} card{(daily.reviewsToday || 0) === 1 ? "" : "s"} studied today
+            </div>
+            <div style={{ marginTop: 18, fontFamily: FJP, fontSize: 13.5, color: C.faint, lineHeight: 1.6 }}>
+              {nextDue !== Infinity ? (
+                <>Next card due {fmtWhen(nextDue - now)}</>
+              ) : counters.newLeft > 0 ? (
+                <>Daily new-card limit reached.</>
+              ) : scope.type === "all" ? (
+                <>Every card in the collection has been seen. 🎉</>
+              ) : scope.type === "level" ? (
+                <>Every {scope.level} card has been introduced. 🎉</>
+              ) : (
+                <>This section is fully introduced.</>
+              )}
+            </div>
+            {counters.newLeft > 0 && newAllowance <= 0 && (
+              <button
+                onClick={() => setDaily((d) => ({ ...d, extraNew: (d.extraNew || 0) + 10 }))}
+                style={moreBtn}
+              >
+                + Study 10 more new
+              </button>
             )}
-          </div>
-          {counters.newLeft > 0 && newAllowance <= 0 && (
-            <button
-              onClick={() => setDaily((d) => ({ ...d, extraNew: (d.extraNew || 0) + 10 }))}
-              style={moreBtn}
-            >
-              + Study 10 more new
+            <button onClick={() => setView("home")} style={{ ...moreBtn, background: "transparent", color: C.sub, border: "1px solid " + C.line, marginTop: 10 }}>
+              Back to sections
             </button>
-          )}
-          <button onClick={() => setView("home")} style={{ ...moreBtn, background: "transparent", color: C.sub, border: "1px solid " + C.line, marginTop: 10 }}>
-            Back to sections
-          </button>
-        </div>
+          </div>
+        )
       )}
 
       {toast && (
@@ -1383,6 +1674,56 @@ const studyAllPill = {
   fontSize: 11.5,
   cursor: "pointer",
 };
+const modeToggle = {
+  display: "flex",
+  gap: 6,
+  background: "var(--panel)",
+  border: "1px solid " + C.line,
+  borderRadius: 14,
+  padding: 4,
+  marginTop: 8,
+  marginBottom: 4,
+};
+const modeTab = (active) => ({
+  flex: 1,
+  textAlign: "center",
+  padding: "8px 0",
+  borderRadius: 10,
+  border: "none",
+  cursor: "pointer",
+  fontFamily: FDISP,
+  fontWeight: 800,
+  fontSize: 13.5,
+  background: active ? C.seal : "transparent",
+  color: active ? "#fff" : C.sub,
+  transition: "background .15s, color .15s",
+});
+const revCtl = (col, flex) => ({
+  flex,
+  height: "100%",
+  borderTop: "none",
+  borderRight: "none",
+  borderBottom: "none",
+  borderLeft: "1px solid " + C.line,
+  background: "transparent",
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 3,
+  cursor: "pointer",
+});
+const LV_COLOR = { N5: C.good, N4: C.easy, N3: C.gold };
+const lvChip = (lv) => ({
+  fontSize: 9.5,
+  fontWeight: 700,
+  fontFamily: FJP,
+  color: LV_COLOR[lv] || C.sub,
+  background: hexA(LV_COLOR[lv] || C.sub, 0.13),
+  borderRadius: 6,
+  padding: "2px 6px",
+  letterSpacing: 0.4,
+});
 const allCardBtn = {
   width: "100%",
   display: "flex",
