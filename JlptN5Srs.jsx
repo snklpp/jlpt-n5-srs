@@ -651,7 +651,7 @@ export default function JlptN5Srs() {
   const [revKnown, setRevKnown] = useState({}); // { cardId: true } — revision "got it" set
   const [revQueue, setRevQueue] = useState([]); // captured ordered card ids for the current revision session
   const [revPos, setRevPos] = useState(0); // pointer into the current revision queue
-  const [revMode, setRevMode] = useState("flip"); // revision answer mode: 'flip' = Got it/Again · 'srs' = Anki grades
+  const [revMode, setRevMode] = useState("srs"); // revision answer mode: 'srs' = Anki grades (default) · 'flip' = Got it/Again
   const [bdEdits, setBdEdits] = useState({}); // { cardId: markdownString } — user-edited breakdowns, global across all scopes
   const [editing, setEditing] = useState(null); // cardId currently open in the breakdown editor, or null
   const [syncTs, setSyncTs] = useState(0); // timestamp of this device's data (for last-write-wins cloud sync)
@@ -692,7 +692,7 @@ export default function JlptN5Srs() {
     }
     if (data.homeMode) setHomeMode(data.homeMode);
     if (data.revMode) setRevMode(data.revMode);
-    if (data.revKnown) setRevKnown((p) => ({ ...p, ...data.revKnown }));
+    if (data.revKnown) setRevKnown(data.revKnown); // replace (LWW) so a reset propagates; notes stay unioned below
     if (data.bdEdits) setBdEdits((p) => ({ ...p, ...data.bdEdits }));
   }
   useEffect(() => {
@@ -1405,6 +1405,7 @@ export default function JlptN5Srs() {
             onReset={() => {
               setSched({});
               setDaily({ date: todayStr(Date.now()), newDone: 0, reviewsToday: 0, extraNew: 0 });
+              setRevKnown({});
               setUndoStack([]);
               setConfirmReset(false);
               setShowSettings(false);
@@ -1861,6 +1862,7 @@ export default function JlptN5Srs() {
           onReset={() => {
             setSched({});
             setDaily({ date: todayStr(Date.now()), newDone: 0, reviewsToday: 0, extraNew: 0 });
+            setRevKnown({});
             setUndoStack([]);
             setCur(null);
             setConfirmReset(false);
@@ -2317,12 +2319,12 @@ function SettingsSheet({ settings, setSettings, theme, setTheme, stats, daily, c
         <Label style={{ marginTop: 20 }}>Reset</Label>
         {!confirmReset ? (
           <button onClick={() => setConfirmReset(true)} style={resetBtn}>
-            Reset all progress
+            Reset all progress (start every section over)
           </button>
         ) : (
           <div style={{ background: hexA(C.again, 0.1), border: "1px solid " + hexA(C.again, 0.4), borderRadius: 12, padding: 14 }}>
             <div style={{ fontFamily: FJP, fontSize: 13.5, color: C.ink, marginBottom: 12, lineHeight: 1.5 }}>
-              Erase all scheduling and counters for every card? This cannot be undone.
+              Reset all study scheduling and revision progress so every section starts from the beginning? Your edited notes are kept. This can't be undone.
             </div>
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={onReset} style={{ ...resetBtn, flex: 1, marginTop: 0, background: C.again, color: "#fff", border: "none" }}>
