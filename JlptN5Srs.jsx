@@ -652,23 +652,29 @@ export default function JlptN5Srs() {
   const [editing, setEditing] = useState(null); // cardId currently open in the breakdown editor, or null
   const toastTimer = useRef(null);
 
+  /* ---- hydrate state data (used by initial load + cross-device import) ---- */
+  function applyData(s) {
+    if (!s) return;
+    if (s.sched) setSched(s.sched);
+    if (s.settings) setSettings((p) => ({ ...p, ...s.settings }));
+    if (s.theme) setTheme(s.theme);
+    if (s.daily) {
+      const d = s.daily;
+      if (d.date !== todayStr(Date.now())) setDaily({ date: todayStr(Date.now()), newDone: 0, reviewsToday: 0, extraNew: 0 });
+      else setDaily({ extraNew: 0, ...d });
+    }
+    if (s.homeMode) setHomeMode(s.homeMode);
+    if (s.revMode) setRevMode(s.revMode);
+    if (s.bdEdits) setBdEdits(s.bdEdits);
+    if (s.revKnown) setRevKnown(s.revKnown);
+  }
+
   /* ---- load once (restore progress + last screen + theme) ---- */
   useEffect(() => {
     (async () => {
       const s = await loadState();
       if (s) {
-        if (s.sched) setSched(s.sched);
-        if (s.settings) setSettings((p) => ({ ...p, ...s.settings }));
-        if (s.theme) setTheme(s.theme);
-        if (s.daily) {
-          const d = s.daily;
-          if (d.date !== todayStr(Date.now())) setDaily({ date: todayStr(Date.now()), newDone: 0, reviewsToday: 0, extraNew: 0 });
-          else setDaily({ extraNew: 0, ...d });
-        }
-        if (s.homeMode) setHomeMode(s.homeMode);
-        if (s.revMode) setRevMode(s.revMode);
-        if (s.bdEdits) setBdEdits(s.bdEdits);
-        if (s.revKnown) setRevKnown(s.revKnown);
+        applyData(s);
         // restore the screen the user was last on
         const merged = s.scope && s.scope.type === "merged";
         if (s.scope && !merged) setScope(s.scope);
@@ -946,6 +952,9 @@ export default function JlptN5Srs() {
   }
 
   /* ---- counters for study header ---- */
+  // data-only snapshot for cross-device transfer (no navigation fields)
+  const exportBlob = { v: 1, sched, daily, settings, theme, homeMode, revMode, revKnown, bdEdits };
+
   const counters = useMemo(() => {
     let learn = 0;
     let due = 0;
@@ -1307,6 +1316,8 @@ export default function JlptN5Srs() {
             }}
             bdEdits={bdEdits}
             setBdEdits={setBdEdits}
+            exportBlob={exportBlob}
+            onImportData={applyData}
           />
         )}
       </Shell>
@@ -1759,6 +1770,8 @@ export default function JlptN5Srs() {
           }}
           bdEdits={bdEdits}
           setBdEdits={setBdEdits}
+          exportBlob={exportBlob}
+          onImportData={applyData}
         />
       )}
 
@@ -2075,7 +2088,7 @@ function CopyTarget({ children, onTap, active, flash, center }) {
   );
 }
 
-function SettingsSheet({ settings, setSettings, theme, setTheme, stats, daily, confirmReset, setConfirmReset, onReset, onClose, bdEdits, setBdEdits }) {
+function SettingsSheet({ settings, setSettings, theme, setTheme, stats, daily, confirmReset, setConfirmReset, onReset, onClose, bdEdits, setBdEdits, exportBlob, onImportData }) {
   const dirs = [
     { v: "jp", t: "JP → EN", d: "see the word, recall the meaning" },
     { v: "en", t: "EN → JP", d: "see the meaning, recall the word" },
@@ -2193,8 +2206,8 @@ function SettingsSheet({ settings, setSettings, theme, setTheme, stats, daily, c
           <Stat n={stats.mature} t="mature" color={C.good} />
         </div>
 
-        <Label style={{ marginTop: 20 }}>Custom breakdown edits</Label>
-        <CustomEdits bdEdits={bdEdits} setBdEdits={setBdEdits} />
+        <Label style={{ marginTop: 20 }}>Sync across devices</Label>
+        <DeviceSync exportBlob={exportBlob} onImportData={onImportData} bdEdits={bdEdits} setBdEdits={setBdEdits} />
 
         <Label style={{ marginTop: 20 }}>Reset</Label>
         {!confirmReset ? (
@@ -2342,8 +2355,8 @@ function BreakdownEditor({ title, initial, hasOverride, onSave, onReset, onClose
   );
 }
 
-/* ---- export / import custom edits (Settings) ---- */
-function CustomEdits({ bdEdits, setBdEdits }) {
+/* ---- move all data (notes + progress) between devices, no server (Settings) ---- */
+function DeviceSync({ exportBlob, onImportData, bdEdits, setBdEdits }) {
   const count = Object.keys(bdEdits || {}).length;
   const [open, setOpen] = useState(false);
   const [imp, setImp] = useState("");
@@ -2351,39 +2364,36 @@ function CustomEdits({ bdEdits, setBdEdits }) {
   const [confirmClear, setConfirmClear] = useState(false);
   const flash = (t) => {
     setMsg(t);
-    setTimeout(() => setMsg(""), 1800);
+    setTimeout(() => setMsg(""), 2200);
   };
   const doCopy = () => {
-    copyText(JSON.stringify(bdEdits || {}));
-    flash("Copied " + count + " edit" + (count === 1 ? "" : "s"));
+    copyText(JSON.stringify(exportBlob));
+    flash("Copied — now paste it on your other device");
   };
   const doImport = () => {
     try {
       const o = JSON.parse(imp);
       if (!o || typeof o !== "object" || Array.isArray(o)) throw 0;
-      const clean = {};
-      Object.keys(o).forEach((k) => {
-        if (typeof o[k] === "string") clean[k] = o[k];
-      });
-      setBdEdits((m) => ({ ...m, ...clean }));
+      onImportData(o);
       setImp("");
       setOpen(false);
-      flash("Imported " + Object.keys(clean).length);
+      const n = o.bdEdits ? Object.keys(o.bdEdits).length : 0;
+      flash("Applied · " + n + " note" + (n === 1 ? "" : "s") + " + progress");
     } catch (e) {
-      flash("Invalid JSON");
+      flash("That doesn't look like valid data");
     }
   };
   return (
     <div>
       <div style={{ fontFamily: FJP, fontSize: 12.5, color: C.sub, marginBottom: 9, lineHeight: 1.5 }}>
-        {count} card{count === 1 ? "" : "s"} edited · saved on this device, shown in every section &amp; revision.
+        Edits &amp; progress live on this device. To move them, tap <b>Copy all my data</b> here, then <b>Paste</b> it on your other device. ({count} note{count === 1 ? "" : "s"} edited)
       </div>
       <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={doCopy} disabled={!count} style={{ ...resetBtn, marginTop: 0, flex: 1, opacity: count ? 1 : 0.5, cursor: count ? "pointer" : "default" }}>
-          Copy edits
+        <button onClick={doCopy} style={{ ...resetBtn, marginTop: 0, flex: 1.4, background: C.seal, color: "#fff", border: "none" }}>
+          Copy all my data
         </button>
         <button onClick={() => setOpen((o) => !o)} style={{ ...resetBtn, marginTop: 0, flex: 1 }}>
-          Import…
+          Paste…
         </button>
       </div>
       {open && (
@@ -2391,24 +2401,24 @@ function CustomEdits({ bdEdits, setBdEdits }) {
           <textarea
             value={imp}
             onChange={(e) => setImp(e.target.value)}
-            placeholder="Paste edits JSON here"
+            placeholder="Paste the data copied from your other device"
             spellCheck={false}
             style={{ width: "100%", height: 110, resize: "none", background: C.bg2, color: C.ink, border: "1px solid " + C.line, borderRadius: 12, padding: "10px 12px", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, lineHeight: 1.5, ...editFieldCss }}
           />
-          <button onClick={doImport} style={{ ...resetBtn, marginTop: 8, background: C.seal, color: "#fff", border: "none" }}>
-            Apply import (merge)
+          <button onClick={doImport} style={{ ...resetBtn, marginTop: 8, background: C.good, color: "#06231a", border: "none" }}>
+            Apply (replaces this device's data)
           </button>
         </div>
       )}
       {count > 0 &&
         (!confirmClear ? (
           <button onClick={() => setConfirmClear(true)} style={{ ...resetBtn, color: C.again, border: "1px solid " + hexA(C.again, 0.4) }}>
-            Clear all edits
+            Clear all edited notes
           </button>
         ) : (
           <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
             <button onClick={() => { setBdEdits({}); setConfirmClear(false); }} style={{ ...resetBtn, marginTop: 0, flex: 1, background: C.again, color: "#fff", border: "none" }}>
-              Erase all edits
+              Erase all notes
             </button>
             <button onClick={() => setConfirmClear(false)} style={{ ...resetBtn, marginTop: 0, flex: 1 }}>
               Cancel
