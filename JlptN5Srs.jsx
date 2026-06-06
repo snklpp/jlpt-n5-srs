@@ -817,6 +817,7 @@ export default function JlptN5Srs() {
   function revAdvance(markKnown) {
     if (cur) {
       const id = cur.id;
+      setUndoStack((u) => [...u, { id, dir: cur.dir, isNew: cur.isNew, schedChanged: false, dailyChanged: false, rev: true, pos: revPos, prevKnown: !!revKnown[id] }].slice(-60));
       setRevKnown((k) => {
         const n = { ...k };
         if (markKnown) n[id] = true;
@@ -865,22 +866,17 @@ export default function JlptN5Srs() {
     if (!cur || !revealed) return;
     haptic(g === 0 ? [8, 30, 8] : 10);
     const id = cur.id;
+    const merged = scope.type === "merged";
     const prev = sched[id] ? { ...sched[id] } : null;
     const ns = applyGrade(prev, g, Date.now());
     const nSched = { ...sched, [id]: ns };
-    const nDaily = {
-      ...daily,
-      reviewsToday: (daily.reviewsToday || 0) + 1,
-      newDone: daily.newDone + (cur.isNew ? 1 : 0),
-    };
-    setUndoStack((u) => [...u, { id, prevSched: prev, prevDaily: { ...daily }, dir: cur.dir, isNew: cur.isNew }].slice(-60));
     setSched(nSched);
-    setDaily(nDaily);
-    if (scope.type === "merged") {
-      // revision: grading also schedules in SRS; Again leaves it "unknown", else "got it"
+    if (merged) {
+      // revision: grading schedules into SRS but does NOT spend the daily new-card budget / review counters
+      setUndoStack((u) => [...u, { id, dir: cur.dir, isNew: cur.isNew, schedChanged: true, prevSched: prev, dailyChanged: false, rev: true, pos: revPos, prevKnown: !!revKnown[id] }].slice(-60));
       setRevKnown((k) => {
         const n = { ...k };
-        if (g > 0) n[id] = true;
+        if (g > 0) n[id] = true; // Again leaves it "unknown", else "got it"
         else delete n[id];
         return n;
       });
@@ -889,6 +885,13 @@ export default function JlptN5Srs() {
       setActiveGrade(-1);
       return;
     }
+    const nDaily = {
+      ...daily,
+      reviewsToday: (daily.reviewsToday || 0) + 1,
+      newDone: daily.newDone + (cur.isNew ? 1 : 0),
+    };
+    setUndoStack((u) => [...u, { id, dir: cur.dir, isNew: cur.isNew, schedChanged: true, prevSched: prev, dailyChanged: true, prevDaily: { ...daily }, rev: false }].slice(-60));
+    setDaily(nDaily);
     const n = pickNext(scopeCards, nSched, nDaily, Date.now());
     if (n) n.dir = dirFor();
     setCur(n);
@@ -906,13 +909,24 @@ export default function JlptN5Srs() {
     if (!undoStack.length) return;
     haptic(6);
     const snap = undoStack[undoStack.length - 1];
-    setSched((s) => {
-      const c = { ...s };
-      if (snap.prevSched) c[snap.id] = snap.prevSched;
-      else delete c[snap.id];
-      return c;
-    });
-    setDaily(snap.prevDaily);
+    if (snap.schedChanged)
+      setSched((s) => {
+        const c = { ...s };
+        if (snap.prevSched) c[snap.id] = snap.prevSched;
+        else delete c[snap.id];
+        return c;
+      });
+    if (snap.dailyChanged && snap.prevDaily) setDaily(snap.prevDaily);
+    if (snap.rev) {
+      // revision: step the queue pointer back and restore the card's "known" flag
+      setRevKnown((k) => {
+        const n = { ...k };
+        if (snap.prevKnown) n[snap.id] = true;
+        else delete n[snap.id];
+        return n;
+      });
+      setRevPos(snap.pos);
+    }
     setCur({ id: snap.id, isNew: snap.isNew, dir: snap.dir });
     setRevealed(true);
     setUndoStack((u) => u.slice(0, -1));
@@ -1378,7 +1392,7 @@ export default function JlptN5Srs() {
               : SECTIONS[scope.si]}
           </div>
         </div>
-        {scope.type !== "merged" && <IconBtn onClick={doUndo} label="↶" disabled={!undoStack.length} />}
+        <IconBtn onClick={doUndo} label="↶" disabled={!undoStack.length} />
         {scope.type === "merged" && (
           <div style={revModeTog}>
             {[["flip", "Got it"], ["srs", "SRS"]].map(([m, lbl]) => (
