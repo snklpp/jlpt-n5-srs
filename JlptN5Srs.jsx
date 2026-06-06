@@ -210,6 +210,10 @@ const FJP = "'Zen Maru Gothic', sans-serif";
 const FDISP = "'Zen Kaku Gothic New', sans-serif";
 const INK_GOLD = "#2a1c06"; // dark ink for text on the gold→seal gradient (theme-independent)
 
+// cross-device auto-sync backend (free Render web service + shared Postgres); single-room, last-write-wins
+const CLOUD_URL = "https://jlpt-sync.onrender.com";
+const CLOUD_ROOM = "default";
+
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700;900&family=Zen+Maru+Gothic:wght@400;500;700&display=swap');
 :root{
@@ -650,6 +654,12 @@ export default function JlptN5Srs() {
   const [revMode, setRevMode] = useState("flip"); // revision answer mode: 'flip' = Got it/Again · 'srs' = Anki grades
   const [bdEdits, setBdEdits] = useState({}); // { cardId: markdownString } — user-edited breakdowns, global across all scopes
   const [editing, setEditing] = useState(null); // cardId currently open in the breakdown editor, or null
+  const [syncTs, setSyncTs] = useState(0); // timestamp of this device's data (for last-write-wins cloud sync)
+  const [syncOn, setSyncOn] = useState(true); // auto-sync across devices
+  const [syncState, setSyncState] = useState("idle"); // idle | syncing | ok | err
+  const syncTsRef = useRef(0);
+  const lastPushedJsonRef = useRef(null);
+  const initialPullDoneRef = useRef(false);
   const toastTimer = useRef(null);
 
   /* ---- hydrate state data (used by initial load + cross-device import) ---- */
@@ -669,12 +679,71 @@ export default function JlptN5Srs() {
     if (s.revKnown) setRevKnown(s.revKnown);
   }
 
+  /* ---- merge remote cloud data: replace progress, UNION notes & known-marks (never drop a note) ---- */
+  function applyRemote(data) {
+    if (!data) return;
+    if (data.sched) setSched(data.sched);
+    if (data.settings) setSettings((p) => ({ ...p, ...data.settings }));
+    if (data.theme) setTheme(data.theme);
+    if (data.daily) {
+      const d = data.daily;
+      if (d.date !== todayStr(Date.now())) setDaily({ date: todayStr(Date.now()), newDone: 0, reviewsToday: 0, extraNew: 0 });
+      else setDaily({ extraNew: 0, ...d });
+    }
+    if (data.homeMode) setHomeMode(data.homeMode);
+    if (data.revMode) setRevMode(data.revMode);
+    if (data.revKnown) setRevKnown((p) => ({ ...p, ...data.revKnown }));
+    if (data.bdEdits) setBdEdits((p) => ({ ...p, ...data.bdEdits }));
+  }
+  useEffect(() => {
+    syncTsRef.current = syncTs;
+  }, [syncTs]);
+
+  async function pullCloud() {
+    if (!syncOn) return;
+    try {
+      setSyncState("syncing");
+      const r = await fetch(CLOUD_URL + "/api/state?room=" + CLOUD_ROOM, { cache: "no-store" });
+      const j = await r.json();
+      if (j && j.data && Number(j.ts) > syncTsRef.current) {
+        lastPushedJsonRef.current = JSON.stringify(j.data);
+        applyRemote(j.data);
+        const ts = Number(j.ts);
+        syncTsRef.current = ts;
+        setSyncTs(ts);
+      }
+      setSyncState("ok");
+    } catch (e) {
+      setSyncState("err");
+    } finally {
+      initialPullDoneRef.current = true;
+    }
+  }
+  async function pushCloud(blob, ts, json) {
+    if (!syncOn) return;
+    try {
+      setSyncState("syncing");
+      const r = await fetch(CLOUD_URL + "/api/state?room=" + CLOUD_ROOM, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ts, data: blob }),
+      });
+      await r.json();
+      lastPushedJsonRef.current = json;
+      setSyncState("ok");
+    } catch (e) {
+      setSyncState("err");
+    }
+  }
+
   /* ---- load once (restore progress + last screen + theme) ---- */
   useEffect(() => {
     (async () => {
       const s = await loadState();
       if (s) {
         applyData(s);
+        if (typeof s.syncTs === "number") { setSyncTs(s.syncTs); syncTsRef.current = s.syncTs; }
+        if (typeof s.syncOn === "boolean") setSyncOn(s.syncOn);
         // restore the screen the user was last on
         const merged = s.scope && s.scope.type === "merged";
         if (s.scope && !merged) setScope(s.scope);
@@ -732,8 +801,8 @@ export default function JlptN5Srs() {
   /* ---- persist progress + last screen + theme ---- */
   useEffect(() => {
     if (!ready) return;
-    saveState({ v: 1, sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, revKnown, bdEdits });
-  }, [sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, revKnown, bdEdits, ready]);
+    saveState({ v: 1, sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, revKnown, bdEdits, syncTs, syncOn });
+  }, [sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, revKnown, bdEdits, syncTs, syncOn, ready]);
 
   /* ---- scope cards ---- */
   const scopeCards = useMemo(
@@ -954,6 +1023,36 @@ export default function JlptN5Srs() {
   /* ---- counters for study header ---- */
   // data-only snapshot for cross-device transfer (no navigation fields)
   const exportBlob = { v: 1, sched, daily, settings, theme, homeMode, revMode, revKnown, bdEdits };
+  const exportJson = JSON.stringify(exportBlob);
+
+  /* ---- cloud sync: pull on open / focus / interval, push (debounced) on change ---- */
+  useEffect(() => {
+    if (!ready || !syncOn) return;
+    pullCloud();
+    const onVis = () => { if (typeof document === "undefined" || !document.hidden) pullCloud(); };
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVis);
+    if (typeof window !== "undefined") window.addEventListener("focus", onVis);
+    const iv = setInterval(onVis, 45000);
+    return () => {
+      if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVis);
+      if (typeof window !== "undefined") window.removeEventListener("focus", onVis);
+      clearInterval(iv);
+    };
+    // eslint-disable-next-line
+  }, [ready, syncOn]);
+
+  useEffect(() => {
+    if (!ready || !syncOn || !initialPullDoneRef.current) return; // wait for the first pull so we don't clobber newer cloud data
+    if (exportJson === lastPushedJsonRef.current) return; // unchanged / echo of what we just synced
+    const t = setTimeout(() => {
+      const ts = Date.now();
+      setSyncTs(ts);
+      syncTsRef.current = ts;
+      pushCloud(exportBlob, ts, exportJson);
+    }, 1200);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line
+  }, [exportJson, ready, syncOn]);
 
   const counters = useMemo(() => {
     let learn = 0;
@@ -1318,6 +1417,9 @@ export default function JlptN5Srs() {
             setBdEdits={setBdEdits}
             exportBlob={exportBlob}
             onImportData={applyData}
+            syncOn={syncOn}
+            setSyncOn={setSyncOn}
+            syncState={syncState}
           />
         )}
       </Shell>
@@ -1772,6 +1874,9 @@ export default function JlptN5Srs() {
           setBdEdits={setBdEdits}
           exportBlob={exportBlob}
           onImportData={applyData}
+          syncOn={syncOn}
+          setSyncOn={setSyncOn}
+          syncState={syncState}
         />
       )}
 
@@ -2088,7 +2193,7 @@ function CopyTarget({ children, onTap, active, flash, center }) {
   );
 }
 
-function SettingsSheet({ settings, setSettings, theme, setTheme, stats, daily, confirmReset, setConfirmReset, onReset, onClose, bdEdits, setBdEdits, exportBlob, onImportData }) {
+function SettingsSheet({ settings, setSettings, theme, setTheme, stats, daily, confirmReset, setConfirmReset, onReset, onClose, bdEdits, setBdEdits, exportBlob, onImportData, syncOn, setSyncOn, syncState }) {
   const dirs = [
     { v: "jp", t: "JP → EN", d: "see the word, recall the meaning" },
     { v: "en", t: "EN → JP", d: "see the meaning, recall the word" },
@@ -2207,7 +2312,7 @@ function SettingsSheet({ settings, setSettings, theme, setTheme, stats, daily, c
         </div>
 
         <Label style={{ marginTop: 20 }}>Sync across devices</Label>
-        <DeviceSync exportBlob={exportBlob} onImportData={onImportData} bdEdits={bdEdits} setBdEdits={setBdEdits} />
+        <DeviceSync exportBlob={exportBlob} onImportData={onImportData} bdEdits={bdEdits} setBdEdits={setBdEdits} syncOn={syncOn} setSyncOn={setSyncOn} syncState={syncState} />
 
         <Label style={{ marginTop: 20 }}>Reset</Label>
         {!confirmReset ? (
@@ -2355,13 +2460,15 @@ function BreakdownEditor({ title, initial, hasOverride, onSave, onReset, onClose
   );
 }
 
-/* ---- move all data (notes + progress) between devices, no server (Settings) ---- */
-function DeviceSync({ exportBlob, onImportData, bdEdits, setBdEdits }) {
+/* ---- auto cloud sync + manual transfer (Settings) ---- */
+function DeviceSync({ exportBlob, onImportData, bdEdits, setBdEdits, syncOn, setSyncOn, syncState }) {
   const count = Object.keys(bdEdits || {}).length;
   const [open, setOpen] = useState(false);
   const [imp, setImp] = useState("");
   const [msg, setMsg] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
+  const dotColor = !syncOn ? C.faint : syncState === "err" ? C.again : syncState === "syncing" ? C.gold : C.good;
+  const statusText = !syncOn ? "Off" : syncState === "err" ? "Offline — will retry" : syncState === "syncing" ? "Syncing…" : "Synced";
   const flash = (t) => {
     setMsg(t);
     setTimeout(() => setMsg(""), 2200);
@@ -2385,8 +2492,25 @@ function DeviceSync({ exportBlob, onImportData, bdEdits, setBdEdits }) {
   };
   return (
     <div>
-      <div style={{ fontFamily: FJP, fontSize: 12.5, color: C.sub, marginBottom: 9, lineHeight: 1.5 }}>
-        Edits &amp; progress live on this device. To move them, tap <b>Copy all my data</b> here, then <b>Paste</b> it on your other device. ({count} note{count === 1 ? "" : "s"} edited)
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: C.bg2, border: "1px solid " + C.line, borderRadius: 12, padding: "11px 13px", marginBottom: 10 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontFamily: FJP, fontWeight: 700, fontSize: 14, color: C.ink, display: "flex", alignItems: "center", gap: 7 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 4, background: dotColor, flex: "0 0 auto" }} />
+            Auto-sync
+          </div>
+          <div style={{ fontFamily: FJP, fontSize: 11, color: C.sub, marginTop: 2 }}>{statusText} · edits &amp; progress on every device</div>
+        </div>
+        <button
+          onClick={() => setSyncOn((v) => !v)}
+          className="n5press"
+          aria-label="toggle auto-sync"
+          style={{ flex: "0 0 auto", width: 46, height: 28, borderRadius: 16, border: "none", cursor: "pointer", background: syncOn ? C.good : C.line2, position: "relative", transition: "background .15s" }}
+        >
+          <span style={{ position: "absolute", top: 3, left: syncOn ? 21 : 3, width: 22, height: 22, borderRadius: 12, background: "#fff", transition: "left .15s", boxShadow: "0 1px 3px rgba(0,0,0,.3)" }} />
+        </button>
+      </div>
+      <div style={{ fontFamily: FJP, fontSize: 11.5, color: C.faint, marginBottom: 9, lineHeight: 1.5 }}>
+        Or move data manually: <b>Copy all my data</b> here, then <b>Paste</b> on the other device. ({count} note{count === 1 ? "" : "s"} edited)
       </div>
       <div style={{ display: "flex", gap: 8 }}>
         <button onClick={doCopy} style={{ ...resetBtn, marginTop: 0, flex: 1.4, background: C.seal, color: "#fff", border: "none" }}>
