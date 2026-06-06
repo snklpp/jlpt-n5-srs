@@ -892,7 +892,10 @@ export default function JlptN5Srs() {
   function revAdvance(markKnown) {
     if (cur) {
       const id = cur.id;
-      setUndoStack((u) => [...u, { id, dir: cur.dir, isNew: cur.isNew, schedChanged: false, dailyChanged: false, rev: true, pos: revPos, prevKnown: !!revKnown[id] }].slice(-60));
+      // "Again" (not known) re-queues the card so it returns a few cards later in this same pass
+      const requeuedAt = !markKnown ? Math.min(revPos + 3, revQueue.length) : -1;
+      if (requeuedAt >= 0) setRevQueue((q) => { const nq = q.slice(); nq.splice(Math.min(revPos + 3, nq.length), 0, id); return nq; });
+      setUndoStack((u) => [...u, { id, dir: cur.dir, isNew: cur.isNew, schedChanged: false, dailyChanged: false, rev: true, pos: revPos, prevKnown: !!revKnown[id], requeuedAt }].slice(-60));
       setRevKnown((k) => {
         const n = { ...k };
         if (markKnown) n[id] = true;
@@ -947,8 +950,14 @@ export default function JlptN5Srs() {
     const nSched = { ...sched, [id]: ns };
     setSched(nSched);
     if (merged) {
-      // revision: grading schedules into SRS but does NOT spend the daily new-card budget / review counters
-      setUndoStack((u) => [...u, { id, dir: cur.dir, isNew: cur.isNew, schedChanged: true, prevSched: prev, dailyChanged: false, rev: true, pos: revPos, prevKnown: !!revKnown[id] }].slice(-60));
+      // revision = in-session SRS cram. Every grade re-shows the card LATER in the same pass until it
+      // graduates out of "learning": Again soonest, then Hard, then Good; Easy (and a Good that graduates
+      // to review) leave the session. Re-queue distance grows with the grade so better answers come back later.
+      const stillLearning = ns.state === "learning" || ns.state === "relearning";
+      const gap = g === 0 ? 3 : g === 1 ? 7 : 14; // Again / Hard / Good
+      const requeuedAt = stillLearning ? Math.min(revPos + gap, revQueue.length) : -1;
+      if (requeuedAt >= 0) setRevQueue((q) => { const nq = q.slice(); nq.splice(Math.min(revPos + gap, nq.length), 0, id); return nq; });
+      setUndoStack((u) => [...u, { id, dir: cur.dir, isNew: cur.isNew, schedChanged: true, prevSched: prev, dailyChanged: false, rev: true, pos: revPos, prevKnown: !!revKnown[id], requeuedAt }].slice(-60));
       setRevKnown((k) => {
         const n = { ...k };
         if (g > 0) n[id] = true; // Again leaves it "unknown", else "got it"
@@ -993,7 +1002,9 @@ export default function JlptN5Srs() {
       });
     if (snap.dailyChanged && snap.prevDaily) setDaily(snap.prevDaily);
     if (snap.rev) {
-      // revision: step the queue pointer back and restore the card's "known" flag
+      // revision: undo any "Again" re-queue, step the queue pointer back, restore the card's "known" flag
+      if (snap.requeuedAt != null && snap.requeuedAt >= 0)
+        setRevQueue((q) => { const nq = q.slice(); if (nq[snap.requeuedAt] === snap.id) nq.splice(snap.requeuedAt, 1); return nq; });
       setRevKnown((k) => {
         const n = { ...k };
         if (snap.prevKnown) n[snap.id] = true;
