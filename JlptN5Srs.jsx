@@ -619,6 +619,15 @@ function copyText(t) {
   } catch (e) {}
   fallbackCopy(t);
 }
+// read the clipboard (returns the text, or null if the browser blocks/refuses access)
+async function readClipboard() {
+  try {
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      return await navigator.clipboard.readText();
+    }
+  } catch (e) {}
+  return null;
+}
 
 /* subtle haptic tick (mobile) — silently ignored where unsupported */
 function haptic(ms) {
@@ -649,7 +658,8 @@ export default function JlptN5Srs() {
   const [homeMode, setHomeMode] = useState("level"); // 'level' | 'revision'
   const [confirmRevReset, setConfirmRevReset] = useState(false);
   const [revKnown, setRevKnown] = useState({}); // { cardId: true } — revision "got it" set
-  const [revQueue, setRevQueue] = useState([]); // captured ordered card ids for the current revision session
+  const [revSched, setRevSched] = useState({}); // revision's OWN SRS schedule, independent of By-level `sched`
+  const [revQueue, setRevQueue] = useState([]); // captured ordered card ids for the current revision session (flip mode only)
   const [revPos, setRevPos] = useState(0); // pointer into the current revision queue
   const [revMode, setRevMode] = useState("srs"); // revision answer mode: 'srs' = Anki grades (default) · 'flip' = Got it/Again
   const [bdEdits, setBdEdits] = useState({}); // { cardId: markdownString } — user-edited breakdowns, global across all scopes
@@ -677,6 +687,7 @@ export default function JlptN5Srs() {
     if (s.revMode) setRevMode(s.revMode);
     if (s.bdEdits) setBdEdits(s.bdEdits);
     if (s.revKnown) setRevKnown(s.revKnown);
+    if (s.revSched) setRevSched(s.revSched);
   }
 
   /* ---- merge remote cloud data: replace progress, UNION notes & known-marks (never drop a note) ---- */
@@ -693,6 +704,7 @@ export default function JlptN5Srs() {
     if (data.homeMode) setHomeMode(data.homeMode);
     if (data.revMode) setRevMode(data.revMode);
     if (data.revKnown) setRevKnown(data.revKnown); // replace (LWW) so a reset propagates; notes stay unioned below
+    if (data.revSched) setRevSched(data.revSched); // replace (LWW) so a revision reset propagates
     if (data.bdEdits) setBdEdits((p) => ({ ...p, ...data.bdEdits }));
   }
   useEffect(() => {
@@ -801,8 +813,8 @@ export default function JlptN5Srs() {
   /* ---- persist progress + last screen + theme ---- */
   useEffect(() => {
     if (!ready) return;
-    saveState({ v: 1, sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, revKnown, bdEdits, syncTs, syncOn });
-  }, [sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, revKnown, bdEdits, syncTs, syncOn, ready]);
+    saveState({ v: 1, sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, revKnown, revSched, bdEdits, syncTs, syncOn });
+  }, [sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, revKnown, revSched, bdEdits, syncTs, syncOn, ready]);
 
   /* ---- scope cards ---- */
   const scopeCards = useMemo(
@@ -839,6 +851,30 @@ export default function JlptN5Srs() {
     }
     return null;
   }
+  // Revision picker: same real-time SRS as study, but over revSched and with NO daily new-card cap
+  // (revision is a self-paced cram of the whole merged set). Returns the earliest due learning/review
+  // card, else the next unseen card, else null (everything left is scheduled in the future).
+  function pickNextRev(cards, sc, nowMs) {
+    let learn = null;
+    let review = null;
+    let fresh = null;
+    for (const c of cards) {
+      const s = sc[c.id];
+      if (!s) {
+        if (!fresh) fresh = c.id;
+        continue;
+      }
+      if ((s.state === "learning" || s.state === "relearning") && s.due <= nowMs) {
+        if (!learn || s.due < sc[learn].due) learn = c.id;
+      } else if (s.state === "review" && s.due <= nowMs) {
+        if (!review || s.due < sc[review].due) review = c.id;
+      }
+    }
+    if (learn) return { id: learn, isNew: false };
+    if (review) return { id: review, isNew: false };
+    if (fresh) return { id: fresh, isNew: true };
+    return null;
+  }
   const dirFor = () => {
     const m = settings.direction;
     return m === "mix" ? (Math.random() < 0.5 ? "jp" : "en") : m;
@@ -856,24 +892,36 @@ export default function JlptN5Srs() {
     // eslint-disable-next-line
   }, [now, cur, ready, view, scopeCards, sched, daily, settings.newPerDay]);
 
-  /* ---- revision: drive the current card from the linear queue position ---- */
+  /* ---- revision: drive the current card ---- */
   useEffect(() => {
     if (view !== "study" || scope.type !== "merged") return;
+    if (revMode === "srs") {
+      // real-time SRS: pick the next due/new card from revSched. When nothing is due, leave cur empty
+      // (done screen) and re-pick automatically as the clock ticks and a card's timer comes due.
+      if (cur) return;
+      const n = pickNextRev(scopeCards, revSched, now);
+      if (n) {
+        n.dir = settings.direction === "en" ? "en" : "jp";
+        setCur(n);
+        setRevealed(false);
+      }
+      return;
+    }
+    // flip mode ("Got it / Again"): linear walk through the captured queue
     const id = revQueue[revPos];
     if (id && (!cur || cur.id !== id)) {
-      setCur({ id, isNew: !sched[id], dir: settings.direction === "en" ? "en" : "jp" });
+      setCur({ id, isNew: !revSched[id], dir: settings.direction === "en" ? "en" : "jp" });
     } else if (!id && cur) {
       setCur(null); // reached the end → done screen
     }
     // eslint-disable-next-line
-  }, [view, scope, revPos, revQueue]);
+  }, [view, scope, revPos, revQueue, revMode, now, cur, revSched, scopeCards]);
 
   function startStudy(sc) {
     setScope(sc);
     setCur(null);
     setRevealed(false);
-    setUndoStack([]);
-    setView("study");
+    setView("study"); // keep the undo stack — undo can step back into earlier cards across navigation
   }
 
   /* ---- revision (merged sections, linear flip-through) ---- */
@@ -886,8 +934,7 @@ export default function JlptN5Srs() {
     setRevPos(0);
     setCur(null);
     setRevealed(false);
-    setUndoStack([]);
-    setView("study");
+    setView("study"); // keep the undo stack — undo can step back into earlier cards across navigation
   }
   function revAdvance(markKnown) {
     if (cur) {
@@ -895,7 +942,7 @@ export default function JlptN5Srs() {
       // "Again" (not known) re-queues the card so it returns a few cards later in this same pass
       const requeuedAt = !markKnown ? Math.min(revPos + 3, revQueue.length) : -1;
       if (requeuedAt >= 0) setRevQueue((q) => { const nq = q.slice(); nq.splice(Math.min(revPos + 3, nq.length), 0, id); return nq; });
-      setUndoStack((u) => [...u, { id, dir: cur.dir, isNew: cur.isNew, schedChanged: false, dailyChanged: false, rev: true, pos: revPos, prevKnown: !!revKnown[id], requeuedAt }].slice(-60));
+      setUndoStack((u) => [...u, { id, dir: cur.dir, isNew: cur.isNew, schedChanged: false, dailyChanged: false, rev: true, pos: revPos, prevKnown: !!revKnown[id], requeuedAt, scope, revMode }].slice(-60));
       setRevKnown((k) => {
         const n = { ...k };
         if (markKnown) n[id] = true;
@@ -938,43 +985,47 @@ export default function JlptN5Srs() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line
-  }, [view, showSettings, editing, cur, revealed, undoStack.length, sched, scopeCards, daily, settings.direction, scope, revMode]);
+  }, [view, showSettings, editing, cur, revealed, undoStack.length, sched, revSched, scopeCards, daily, settings.direction, scope, revMode]);
 
   function doGrade(g) {
     if (!cur || !revealed) return;
     haptic(g === 0 ? [8, 30, 8] : 10);
     const id = cur.id;
-    const merged = scope.type === "merged";
-    const prev = sched[id] ? { ...sched[id] } : null;
-    const ns = applyGrade(prev, g, Date.now());
-    const nSched = { ...sched, [id]: ns };
-    setSched(nSched);
-    if (merged) {
-      // revision = in-session SRS cram. Every grade re-shows the card LATER in the same pass until it
-      // graduates out of "learning": Again soonest, then Hard, then Good; Easy (and a Good that graduates
-      // to review) leave the session. Re-queue distance grows with the grade so better answers come back later.
-      const stillLearning = ns.state === "learning" || ns.state === "relearning";
-      const gap = g === 0 ? 3 : g === 1 ? 7 : 14; // Again / Hard / Good
-      const requeuedAt = stillLearning ? Math.min(revPos + gap, revQueue.length) : -1;
-      if (requeuedAt >= 0) setRevQueue((q) => { const nq = q.slice(); nq.splice(Math.min(revPos + gap, nq.length), 0, id); return nq; });
-      setUndoStack((u) => [...u, { id, dir: cur.dir, isNew: cur.isNew, schedChanged: true, prevSched: prev, dailyChanged: false, rev: true, pos: revPos, prevKnown: !!revKnown[id], requeuedAt }].slice(-60));
+
+    if (scope.type === "merged") {
+      // revision = real-time SRS on its OWN schedule (revSched), exactly like By-level study:
+      // Again comes back in ~1 min, Good after the learning steps, Easy graduates out. No fixed-position
+      // re-queue — the card returns when its timer actually comes due.
+      const prevR = revSched[id] ? { ...revSched[id] } : null;
+      const nsR = applyGrade(prevR, g, Date.now());
+      const nRevSched = { ...revSched, [id]: nsR };
+      setRevSched(nRevSched);
       setRevKnown((k) => {
         const n = { ...k };
         if (g > 0) n[id] = true; // Again leaves it "unknown", else "got it"
         else delete n[id];
         return n;
       });
+      setUndoStack((u) => [...u, { id, dir: cur.dir, isNew: cur.isNew, rev: true, revSchedChanged: true, prevRevSched: prevR, prevKnown: !!revKnown[id], scope, revMode }].slice(-60));
+      const n = pickNextRev(scopeCards, nRevSched, Date.now());
+      if (n) n.dir = settings.direction === "en" ? "en" : "jp";
+      setCur(n);
       setRevealed(false);
-      setRevPos((p) => p + 1);
       setActiveGrade(-1);
       return;
     }
+
+    // By-level / per-section study
+    const prev = sched[id] ? { ...sched[id] } : null;
+    const ns = applyGrade(prev, g, Date.now());
+    const nSched = { ...sched, [id]: ns };
+    setSched(nSched);
     const nDaily = {
       ...daily,
       reviewsToday: (daily.reviewsToday || 0) + 1,
       newDone: daily.newDone + (cur.isNew ? 1 : 0),
     };
-    setUndoStack((u) => [...u, { id, dir: cur.dir, isNew: cur.isNew, schedChanged: true, prevSched: prev, dailyChanged: true, prevDaily: { ...daily }, rev: false }].slice(-60));
+    setUndoStack((u) => [...u, { id, dir: cur.dir, isNew: cur.isNew, schedChanged: true, prevSched: prev, dailyChanged: true, prevDaily: { ...daily }, rev: false, scope }].slice(-60));
     setDaily(nDaily);
     const n = pickNext(scopeCards, nSched, nDaily, Date.now());
     if (n) n.dir = dirFor();
@@ -993,6 +1044,9 @@ export default function JlptN5Srs() {
     if (!undoStack.length) return;
     haptic(6);
     const snap = undoStack[undoStack.length - 1];
+    // bring back the screen this card belonged to (so undo works after navigating away and back)
+    if (snap.scope) setScope(snap.scope);
+    if (snap.rev && snap.revMode) setRevMode(snap.revMode);
     if (snap.schedChanged)
       setSched((s) => {
         const c = { ...s };
@@ -1001,17 +1055,24 @@ export default function JlptN5Srs() {
         return c;
       });
     if (snap.dailyChanged && snap.prevDaily) setDaily(snap.prevDaily);
+    if (snap.revSchedChanged)
+      setRevSched((s) => {
+        const c = { ...s };
+        if (snap.prevRevSched) c[snap.id] = snap.prevRevSched;
+        else delete c[snap.id];
+        return c;
+      });
     if (snap.rev) {
-      // revision: undo any "Again" re-queue, step the queue pointer back, restore the card's "known" flag
+      // flip-mode undo (has a queue position): undo any "Again" re-queue and step the pointer back
       if (snap.requeuedAt != null && snap.requeuedAt >= 0)
         setRevQueue((q) => { const nq = q.slice(); if (nq[snap.requeuedAt] === snap.id) nq.splice(snap.requeuedAt, 1); return nq; });
+      if (snap.pos != null) setRevPos(snap.pos);
       setRevKnown((k) => {
         const n = { ...k };
         if (snap.prevKnown) n[snap.id] = true;
         else delete n[snap.id];
         return n;
       });
-      setRevPos(snap.pos);
     }
     setCur({ id: snap.id, isNew: snap.isNew, dir: snap.dir });
     setRevealed(true);
@@ -1030,10 +1091,26 @@ export default function JlptN5Srs() {
     setFlash(field);
     setTimeout(() => setFlash((f) => (f === field ? null : f)), 320);
   }
+  /* ---- one-tap paste: clipboard fully replaces this card's breakdown, saved + synced automatically ---- */
+  async function pasteToCard(id) {
+    const text = await readClipboard();
+    if (text == null) {
+      // browser refused clipboard access — fall back to the editor so the user can paste manually
+      setEditing(id);
+      fireToast("Paste into the editor");
+      return;
+    }
+    if (!text.trim()) {
+      fireToast("Clipboard is empty");
+      return;
+    }
+    setBdEdits((m) => ({ ...m, [id]: text })); // auto-saved by the persist effect + pushed by cloud sync
+    fireToast("Card replaced from clipboard");
+  }
 
   /* ---- counters for study header ---- */
   // data-only snapshot for cross-device transfer (no navigation fields)
-  const exportBlob = { v: 1, sched, daily, settings, theme, homeMode, revMode, revKnown, bdEdits };
+  const exportBlob = { v: 1, sched, daily, settings, theme, homeMode, revMode, revKnown, revSched, bdEdits };
   const exportJson = JSON.stringify(exportBlob);
 
   /* ---- cloud sync: pull on open / focus / interval, push (debounced) on change ---- */
@@ -1156,6 +1233,22 @@ export default function JlptN5Srs() {
   );
   const revTotalKnown = revStats.reduce((a, s) => a + s.known, 0);
   const revTotalCards = MERGED.reduce((a, g) => a + g.ids.length, 0);
+
+  /* ---- live stats for the revision set currently being studied (SRS mode) ---- */
+  const revSet = useMemo(() => {
+    if (scope.type !== "merged") return { total: 0, known: 0, dueNow: 0, nextDue: Infinity };
+    const ids = scope.mg === -1 ? MERGED.flatMap((g) => g.ids) : MERGED[scope.mg].ids;
+    let known = 0;
+    let dueNow = 0;
+    let nextDue = Infinity;
+    for (const id of ids) {
+      if (revKnown[id]) known++;
+      const s = revSched[id];
+      if (!s || s.due <= now) dueNow++; // unseen or due right now
+      else if (s.due > now) nextDue = Math.min(nextDue, s.due);
+    }
+    return { total: ids.length, known, dueNow, nextDue };
+  }, [scope, revKnown, revSched, now]);
 
   if (!ready) {
     return (
@@ -1413,10 +1506,17 @@ export default function JlptN5Srs() {
             daily={daily}
             confirmReset={confirmReset}
             setConfirmReset={setConfirmReset}
-            onReset={() => {
-              setSched({});
-              setDaily({ date: todayStr(Date.now()), newDone: 0, reviewsToday: 0, extraNew: 0 });
-              setRevKnown({});
+            onReset={(target) => {
+              if (target === "level" || target === "all") {
+                setSched({});
+                setDaily({ date: todayStr(Date.now()), newDone: 0, reviewsToday: 0, extraNew: 0 });
+              }
+              if (target === "revision" || target === "all") {
+                setRevSched({});
+                setRevKnown({});
+                setRevQueue([]);
+                setRevPos(0);
+              }
               setUndoStack([]);
               setConfirmReset(false);
               setShowSettings(false);
@@ -1444,7 +1544,8 @@ export default function JlptN5Srs() {
   const hasKanji = card && card.kanji && card.kanji !== card.kana;
   const promptWord = card ? (dir === "en" ? card.meaning || card.kana : hasKanji ? card.kanji : card.kana) : "";
 
-  /* SRS grade bar (Again/Hard/Good/Easy) — used in normal study and the optional revision grade */
+  /* SRS grade bar (Again/Hard/Good/Easy) — used in normal study and the revision SRS grade */
+  const gradeSched = scope.type === "merged" ? revSched : sched; // revision grades its own schedule
   const srsGradeBar = cur ? (
     <div style={gradeBar}>
       {[
@@ -1453,7 +1554,7 @@ export default function JlptN5Srs() {
         { g: 2, label: "Good", color: C.good },
         { g: 3, label: "Easy", color: C.easy },
       ].map((b, i) => {
-        const span = fmtSpan(applyGrade(sched[cur.id] || null, b.g, now).due - now);
+        const span = fmtSpan(applyGrade(gradeSched[cur.id] || null, b.g, now).due - now);
         return (
           <button
             key={b.g}
@@ -1535,7 +1636,10 @@ export default function JlptN5Srs() {
           <div style={{ height: 6, background: "var(--track)", borderRadius: 6, overflow: "hidden" }}>
             <div
               style={{
-                width: (revQueue.length ? (revPos / revQueue.length) * 100 : 0) + "%",
+                width:
+                  (revMode === "srs"
+                    ? revSet.total ? (revSet.known / revSet.total) * 100 : 0
+                    : revQueue.length ? (revPos / revQueue.length) * 100 : 0) + "%",
                 height: "100%",
                 borderRadius: 6,
                 background: `linear-gradient(90deg, ${hexA(C.seal, 0.85)}, ${C.seal})`,
@@ -1546,7 +1650,9 @@ export default function JlptN5Srs() {
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
             <span style={{ fontSize: 9.5, letterSpacing: 1, color: C.faint, fontFamily: FJP }}>REVISION</span>
             <span style={{ fontSize: 9.5, color: C.faint, fontFamily: FJP, fontVariantNumeric: "tabular-nums" }}>
-              {Math.min(revPos + 1, revQueue.length)} / {revQueue.length}
+              {revMode === "srs"
+                ? `${revSet.known} / ${revSet.total} learned${revSet.dueNow ? " · " + revSet.dueNow + " due" : ""}`
+                : `${Math.min(revPos + 1, revQueue.length)} / ${revQueue.length}`}
             </span>
           </div>
         </div>
@@ -1688,9 +1794,14 @@ export default function JlptN5Srs() {
                     const hasContent = ov != null || card.breakdown || card.mnemonic;
                     if (!hasContent)
                       return (
-                        <button onClick={() => setEditing(card.id)} className="n5press" style={ghostAdd}>
-                          ✎ Add a breakdown / note
-                        </button>
+                        <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                          <button onClick={() => setEditing(card.id)} className="n5press" style={{ ...ghostAdd, width: "auto", marginTop: 0, flex: 1 }}>
+                            ✎ Add a breakdown / note
+                          </button>
+                          <button onClick={() => pasteToCard(card.id)} className="n5press" style={{ ...ghostAdd, width: "auto", marginTop: 0, flex: "0 0 auto", padding: "13px 18px" }} title="Replace this card with clipboard contents">
+                            Paste
+                          </button>
+                        </div>
                       );
                     return (
                       <div
@@ -1718,6 +1829,9 @@ export default function JlptN5Srs() {
                         )}
                         <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 9, marginTop: 11, borderTop: "1px solid " + C.line, paddingTop: 9 }}>
                           {ov != null && <span style={{ fontSize: 10, color: C.gold, fontFamily: FJP, letterSpacing: 0.5 }}>✎ edited</span>}
+                          <button onClick={() => pasteToCard(card.id)} className="n5press" style={bdEditBtn} title="Replace this card with clipboard contents">
+                            Paste
+                          </button>
                           <button onClick={() => setEditing(card.id)} className="n5press" style={bdEditBtn}>
                             Edit
                           </button>
@@ -1769,6 +1883,32 @@ export default function JlptN5Srs() {
       ) : (
         /* ----- done for now ----- */
         scope.type === "merged" ? (
+          revMode === "srs" ? (
+            (() => {
+              const waiting = revSet.nextDue !== Infinity;
+              return (
+                <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "20px 28px", textAlign: "center", animation: "n5pop .3s" }}>
+                  <div style={{ width: 64, height: 64, borderRadius: 40, border: "2px solid " + hexA(waiting ? C.seal : C.good, 0.5), display: "grid", placeItems: "center", color: waiting ? C.seal : C.good, fontSize: 30, marginBottom: 18 }}>
+                    {waiting ? "⏱" : "✓"}
+                  </div>
+                  <div style={{ fontFamily: FDISP, fontWeight: 800, fontSize: 22, color: C.ink }}>{waiting ? "Caught up for now" : "Set complete"}</div>
+                  <div style={{ fontFamily: FJP, fontSize: 14, color: C.sub, marginTop: 8 }}>
+                    <b style={{ color: C.good }}>{revSet.known}</b> learned · {revSet.total} in this set
+                  </div>
+                  <div style={{ marginTop: 16, fontFamily: FJP, fontSize: 13.5, color: C.faint, lineHeight: 1.6 }}>
+                    {waiting ? (
+                      <>Next card due {fmtWhen(revSet.nextDue - now)} — it'll reappear automatically.</>
+                    ) : (
+                      <>You've cleared everything in this set. 🎉</>
+                    )}
+                  </div>
+                  <button onClick={() => setView("home")} style={{ ...moreBtn, background: "transparent", color: C.sub, border: "1px solid " + C.line, marginTop: 18 }}>
+                    Back to revision
+                  </button>
+                </div>
+              );
+            })()
+          ) : (
           (() => {
             const unknown = revQueue.filter((id) => !revKnown[id]).length;
             const got = revQueue.length - unknown;
@@ -1795,6 +1935,7 @@ export default function JlptN5Srs() {
               </div>
             );
           })()
+          )
         ) : (
           <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "20px 28px", textAlign: "center", animation: "n5pop .3s" }}>
             <div style={{ width: 64, height: 64, borderRadius: 40, border: "2px solid " + hexA(C.good, 0.5), display: "grid", placeItems: "center", color: C.good, fontSize: 30, marginBottom: 18 }}>
@@ -1870,10 +2011,17 @@ export default function JlptN5Srs() {
           daily={daily}
           confirmReset={confirmReset}
           setConfirmReset={setConfirmReset}
-          onReset={() => {
-            setSched({});
-            setDaily({ date: todayStr(Date.now()), newDone: 0, reviewsToday: 0, extraNew: 0 });
-            setRevKnown({});
+          onReset={(target) => {
+            if (target === "level" || target === "all") {
+              setSched({});
+              setDaily({ date: todayStr(Date.now()), newDone: 0, reviewsToday: 0, extraNew: 0 });
+            }
+            if (target === "revision" || target === "all") {
+              setRevSched({});
+              setRevKnown({});
+              setRevQueue([]);
+              setRevPos(0);
+            }
             setUndoStack([]);
             setCur(null);
             setConfirmReset(false);
@@ -2213,6 +2361,11 @@ function SettingsSheet({ settings, setSettings, theme, setTheme, stats, daily, c
     { v: "mix", t: "Mixed", d: "random direction per card" },
   ];
   const newOpts = [5, 10, 15, 20, 30, 50];
+  const [resetTarget, setResetTarget] = useState(null); // null | 'level' | 'revision' — which track is pending a reset confirm
+  const resetCopy = {
+    level: "Reset all By-level study scheduling so every section starts from the beginning?",
+    revision: "Reset all Revision progress (its SRS schedule and got-it marks)?",
+  };
   return (
     <div
       onClick={onClose}
@@ -2328,20 +2481,25 @@ function SettingsSheet({ settings, setSettings, theme, setTheme, stats, daily, c
         <DeviceSync exportBlob={exportBlob} onImportData={onImportData} bdEdits={bdEdits} setBdEdits={setBdEdits} syncOn={syncOn} setSyncOn={setSyncOn} syncState={syncState} />
 
         <Label style={{ marginTop: 20 }}>Reset</Label>
-        {!confirmReset ? (
-          <button onClick={() => setConfirmReset(true)} style={resetBtn}>
-            Reset all progress (start every section over)
-          </button>
+        {!resetTarget ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+            <button onClick={() => setResetTarget("level")} style={resetBtn}>
+              Reset By-level study progress
+            </button>
+            <button onClick={() => setResetTarget("revision")} style={{ ...resetBtn, marginTop: 0 }}>
+              Reset Revision progress
+            </button>
+          </div>
         ) : (
           <div style={{ background: hexA(C.again, 0.1), border: "1px solid " + hexA(C.again, 0.4), borderRadius: 12, padding: 14 }}>
             <div style={{ fontFamily: FJP, fontSize: 13.5, color: C.ink, marginBottom: 12, lineHeight: 1.5 }}>
-              Reset all study scheduling and revision progress so every section starts from the beginning? Your edited notes are kept. This can't be undone.
+              {resetCopy[resetTarget]} Your edited notes are kept. This can't be undone.
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={onReset} style={{ ...resetBtn, flex: 1, marginTop: 0, background: C.again, color: "#fff", border: "none" }}>
+              <button onClick={() => { onReset(resetTarget); setResetTarget(null); }} style={{ ...resetBtn, flex: 1, marginTop: 0, background: C.again, color: "#fff", border: "none" }}>
                 Yes, reset
               </button>
-              <button onClick={() => setConfirmReset(false)} style={{ ...resetBtn, flex: 1, marginTop: 0, background: C.bg2 }}>
+              <button onClick={() => setResetTarget(null)} style={{ ...resetBtn, flex: 1, marginTop: 0, background: C.bg2 }}>
                 Cancel
               </button>
             </div>
