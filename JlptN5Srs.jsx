@@ -2434,7 +2434,7 @@ function BreakdownEditor({ title, initial, hasOverride, onSave, onReset, onClose
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
-            style={{ flex: 1, width: "100%", resize: "none", background: C.bg2, color: C.ink, border: "1px solid " + C.line, borderRadius: 12, padding: "12px 13px", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 13, lineHeight: 1.6, ...editFieldCss }}
+            style={{ flex: 1, width: "100%", resize: "none", background: C.bg2, color: C.ink, border: "1px solid " + C.line, borderRadius: 12, padding: "13px 14px", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 16, lineHeight: 1.7, ...editFieldCss }}
           />
         ) : (
           <div className="n5-scroll" style={{ flex: 1, overflowY: "auto", background: "var(--panel)", border: "1px solid " + C.line, borderRadius: 14, padding: "14px 15px" }}>
