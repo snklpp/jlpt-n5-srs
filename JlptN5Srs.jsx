@@ -830,8 +830,8 @@ export default function JlptN5Srs() {
         ? (scope.mg === -1 ? MERGED.flatMap((g) => g.ids) : MERGED[scope.mg].ids).map((id) => CARD_BY_ID[id])
         : CARDS.filter((c) => c.si === scope.si);
     // "freq" mode orders cards by corpus frequency (most common first) so the highest-value
-    // words are introduced/seen first. Merged revision keeps its easiest-first section order.
-    if (sortMode === "freq" && scope.type !== "merged") {
+    // words are introduced/seen first. Applies to study AND revision.
+    if (sortMode === "freq") {
       return list
         .map((c, i) => [c, i])
         .sort((a, b) => (b[0].freq || 0) - (a[0].freq || 0) || a[1] - b[1]) // desc, stable on ties
@@ -936,16 +936,47 @@ export default function JlptN5Srs() {
   }
 
   /* ---- revision (merged sections, linear flip-through) ---- */
+  // most-frequent-first ordering of a list of card ids (stable; ties keep the given order)
+  function freqOrderIds(ids) {
+    return ids
+      .map((id, i) => [id, i])
+      .sort((a, b) => ((CARD_BY_ID[b[0]].freq || 0) - (CARD_BY_ID[a[0]].freq || 0)) || a[1] - b[1])
+      .map((p) => p[0]);
+  }
   function startRevision(mg, unknownOnly) {
     const base = mg === -1 ? MERGED.flatMap((g) => g.ids) : MERGED[mg].ids;
     let q = unknownOnly ? base.filter((id) => !revKnown[id]) : base;
     if (!q.length) q = base; // nothing unknown left → review everything
+    if (sortMode === "freq") q = freqOrderIds(q); // most common first
     setScope({ type: "merged", mg });
     setRevQueue(q);
     setRevPos(0);
     setCur(null);
     setRevealed(false);
     setView("study"); // keep the undo stack — undo can step back into earlier cards across navigation
+  }
+  // toggling the sort mode should take effect immediately on screen, not only on the next card
+  function changeSort(mode) {
+    if (mode === sortMode) return;
+    setSortMode(mode);
+    if (view !== "study") return;
+    if (scope.type === "merged" && revMode === "flip") {
+      // reorder the not-yet-seen tail of the flip queue (keep what you've already passed)
+      const base = scope.mg === -1 ? MERGED.flatMap((g) => g.ids) : MERGED[scope.mg].ids;
+      const ord = new Map(base.map((id, i) => [id, i]));
+      setRevQueue((qq) => {
+        const passed = qq.slice(0, revPos);
+        let rest = qq.slice(revPos);
+        rest = mode === "freq" ? freqOrderIds(rest) : rest.slice().sort((a, b) => (ord.get(a) ?? 0) - (ord.get(b) ?? 0));
+        return [...passed, ...rest];
+      });
+      setCur(null); // flip effect re-reads revQueue[revPos] = first of the reordered tail
+      setRevealed(false);
+    } else if (cur && cur.isNew) {
+      // study / revision-SRS: jump to the first card of the new order (only swaps a fresh, ungraded new card)
+      setCur(null);
+      setRevealed(false);
+    }
   }
   function revAdvance(markKnown) {
     if (cur) {
@@ -1630,23 +1661,22 @@ export default function JlptN5Srs() {
           </div>
         </div>
         <IconBtn onClick={doUndo} label="↶" disabled={!undoStack.length} />
-        {scope.type === "merged" ? (
-          <div style={revModeTog}>
+        {scope.type === "merged" && (
+          <div style={revModeTog} title="Answer mode">
             {[["flip", "Got it"], ["srs", "SRS"]].map(([m, lbl]) => (
               <button key={m} onClick={() => setRevMode(m)} className="n5press" style={revModeSeg(revMode === m)}>
                 {lbl}
               </button>
             ))}
           </div>
-        ) : (
-          <div style={revModeTog} title="Card order">
-            {[["section", "Order"], ["freq", "Freq"]].map(([m, lbl]) => (
-              <button key={m} onClick={() => setSortMode(m)} className="n5press" style={revModeSeg(sortMode === m)}>
-                {lbl}
-              </button>
-            ))}
-          </div>
         )}
+        <div style={revModeTog} title="Card order — Freq shows the most common words first">
+          {[["section", "Order"], ["freq", "Freq"]].map(([m, lbl]) => (
+            <button key={m} onClick={() => changeSort(m)} className="n5press" style={revModeSeg(sortMode === m)}>
+              {lbl}
+            </button>
+          ))}
+        </div>
         <IconBtn onClick={() => setShowSettings(true)} label="⚙" />
       </header>
 
