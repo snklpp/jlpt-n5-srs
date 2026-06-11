@@ -672,6 +672,7 @@ export default function JlptN5Srs() {
   const [confirmReset, setConfirmReset] = useState(false);
   const [homeMode, setHomeMode] = useState("level"); // 'level' | 'revision'
   const [sortMode, setSortMode] = useState("section"); // card order within a scope: 'section' (deck order) | 'freq' (most common first)
+  const [cardScale, setCardScale] = useState(1); // text zoom for the card CONTENT only (display pref; per-device, not cloud-synced)
   const [confirmRevReset, setConfirmRevReset] = useState(false);
   const [revKnown, setRevKnown] = useState({}); // { cardId: true } — revision "got it" set
   const [revSched, setRevSched] = useState({}); // revision's OWN SRS schedule, independent of By-level `sched`
@@ -703,6 +704,7 @@ export default function JlptN5Srs() {
     if (s.homeMode) setHomeMode(s.homeMode);
     if (s.revMode) setRevMode(s.revMode);
     if (s.sortMode) setSortMode(s.sortMode);
+    if (typeof s.cardScale === "number" && s.cardScale >= 0.7 && s.cardScale <= 2) setCardScale(s.cardScale);
     if (s.bdEdits) setBdEdits(s.bdEdits);
     if (s.revKnown) setRevKnown(s.revKnown);
     if (s.revSched) setRevSched(s.revSched);
@@ -833,8 +835,8 @@ export default function JlptN5Srs() {
   /* ---- persist progress + last screen + theme ---- */
   useEffect(() => {
     if (!ready) return;
-    saveState({ v: 1, deckRev: DECK_REV, sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, sortMode, revKnown, revSched, bdEdits, syncTs, syncOn });
-  }, [sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, sortMode, revKnown, revSched, bdEdits, syncTs, syncOn, ready]);
+    saveState({ v: 1, deckRev: DECK_REV, sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, sortMode, cardScale, revKnown, revSched, bdEdits, syncTs, syncOn });
+  }, [sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, sortMode, cardScale, revKnown, revSched, bdEdits, syncTs, syncOn, ready]);
 
   /* ---- scope cards (optionally re-ordered most-frequent-first) ---- */
   const scopeCards = useMemo(() => {
@@ -1597,6 +1599,8 @@ export default function JlptN5Srs() {
             syncOn={syncOn}
             setSyncOn={setSyncOn}
             syncState={syncState}
+            cardScale={cardScale}
+            setCardScale={setCardScale}
           />
         )}
       </Shell>
@@ -1777,7 +1781,8 @@ export default function JlptN5Srs() {
               position: "relative",
             }}
           >
-            <div style={{ padding: "22px 20px 26px", minHeight: "100%", display: "flex", flexDirection: "column" }}>
+            {/* `zoom` scales ONLY the card content (word, reading, note); header/controls keep their size */}
+            <div style={{ padding: "22px 20px 26px", minHeight: "100%", display: "flex", flexDirection: "column", zoom: cardScale }}>
               {/* section tag (+ level badge in revision) */}
               <div style={{ textAlign: "center", marginBottom: 14, display: "flex", justifyContent: "center", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
                 {scope.type === "merged" && card && <span style={lvChip(card.level)}>{card.level}</span>}
@@ -2110,6 +2115,8 @@ export default function JlptN5Srs() {
           syncOn={syncOn}
           setSyncOn={setSyncOn}
           syncState={syncState}
+          cardScale={cardScale}
+          setCardScale={setCardScale}
         />
       )}
 
@@ -2426,7 +2433,7 @@ function CopyTarget({ children, onTap, active, flash, center }) {
   );
 }
 
-function SettingsSheet({ settings, setSettings, theme, setTheme, stats, daily, confirmReset, setConfirmReset, onReset, onClose, bdEdits, setBdEdits, exportBlob, onImportData, syncOn, setSyncOn, syncState }) {
+function SettingsSheet({ settings, setSettings, theme, setTheme, stats, daily, confirmReset, setConfirmReset, onReset, onClose, bdEdits, setBdEdits, exportBlob, onImportData, syncOn, setSyncOn, syncState, cardScale, setCardScale }) {
   const dirs = [
     { v: "jp", t: "JP → EN", d: "see the word, recall the meaning" },
     { v: "en", t: "EN → JP", d: "see the meaning, recall the word" },
@@ -2488,6 +2495,29 @@ function SettingsSheet({ settings, setSettings, theme, setTheme, stats, daily, c
               {o.t}
             </button>
           ))}
+        </div>
+
+        <Label>Card text size</Label>
+        <div style={{ background: C.bg2, border: "1px solid " + C.line, borderRadius: 12, padding: "12px 14px", marginBottom: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <input
+              type="range"
+              min={0.7}
+              max={2}
+              step={0.05}
+              value={cardScale}
+              onChange={(e) => setCardScale(parseFloat(e.target.value))}
+              aria-label="Card text size"
+              style={{ flex: 1, accentColor: C.seal, cursor: "pointer", minWidth: 0 }}
+            />
+            <button
+              onClick={() => setCardScale(1)}
+              style={{ background: C.bg1, border: "1px solid " + C.line, color: C.ink, borderRadius: 9, padding: "5px 10px", fontFamily: FDISP, fontWeight: 800, fontSize: 12.5, cursor: "pointer", minWidth: 56, textAlign: "center" }}
+            >
+              {Math.round(cardScale * 100)}%
+            </button>
+          </div>
+          <div style={{ fontFamily: FJP, fontSize: 11.5, color: C.sub, marginTop: 7 }}>Zooms the card content while studying — tap the % to reset. Saved on this device only.</div>
         </div>
 
         <Label>Study direction</Label>
