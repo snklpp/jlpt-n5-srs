@@ -859,16 +859,20 @@ export default function JlptN5Srs() {
 
   const newAllowance = (settings.newPerDay || 0) + (daily.extraNew || 0) - (daily.newDone || 0);
 
+  // Within each bucket (learning > review > new), "Order" mode picks the earliest-due card
+  // (classic SRS), while "Freq" mode follows the list order — cards arrive most-common-first
+  // even among the ones already due, so the sort toggle visibly governs the whole stream.
   function pickNext(cards, sc, dl, nowMs) {
+    const byOrder = sortMode === "freq";
     let learn = null;
     let review = null;
     for (const c of cards) {
       const s = sc[c.id];
       if (!s) continue;
       if ((s.state === "learning" || s.state === "relearning") && s.due <= nowMs) {
-        if (!learn || s.due < sc[learn].due) learn = c.id;
+        if (!learn || (!byOrder && s.due < sc[learn].due)) learn = c.id;
       } else if (s.state === "review" && s.due <= nowMs) {
-        if (!review || s.due < sc[review].due) review = c.id;
+        if (!review || (!byOrder && s.due < sc[review].due)) review = c.id;
       }
     }
     if (learn) return { id: learn, isNew: false };
@@ -880,9 +884,10 @@ export default function JlptN5Srs() {
     return null;
   }
   // Revision picker: same real-time SRS as study, but over revSched and with NO daily new-card cap
-  // (revision is a self-paced cram of the whole merged set). Returns the earliest due learning/review
-  // card, else the next unseen card, else null (everything left is scheduled in the future).
+  // (revision is a self-paced cram of the whole merged set). Bucket order as above; within a
+  // bucket, earliest-due ("Order") or list order ("Freq").
   function pickNextRev(cards, sc, nowMs) {
+    const byOrder = sortMode === "freq";
     let learn = null;
     let review = null;
     let fresh = null;
@@ -893,9 +898,9 @@ export default function JlptN5Srs() {
         continue;
       }
       if ((s.state === "learning" || s.state === "relearning") && s.due <= nowMs) {
-        if (!learn || s.due < sc[learn].due) learn = c.id;
+        if (!learn || (!byOrder && s.due < sc[learn].due)) learn = c.id;
       } else if (s.state === "review" && s.due <= nowMs) {
-        if (!review || s.due < sc[review].due) review = c.id;
+        if (!review || (!byOrder && s.due < sc[review].due)) review = c.id;
       }
     }
     if (learn) return { id: learn, isNew: false };
@@ -989,8 +994,9 @@ export default function JlptN5Srs() {
       });
       setCur(null); // flip effect re-reads revQueue[revPos] = first of the reordered tail
       setRevealed(false);
-    } else if (cur && cur.isNew) {
-      // study / revision-SRS: jump to the first card of the new order (only swaps a fresh, ungraded new card)
+    } else {
+      // study / revision-SRS: re-pick under the new order right away (nothing was graded, so
+      // dropping the current card is lossless — it just re-enters the queue)
       setCur(null);
       setRevealed(false);
     }
