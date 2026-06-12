@@ -1,7 +1,7 @@
 /* Minimal service worker: enables installability + offline.
    - navigations: network-first (always try fresh index, fall back to cache offline)
    - same-origin assets: cache-first (Vite hashes filenames, so they're immutable) */
-const CACHE = "n5-srs-v2";
+const CACHE = "n5-srs-v3";
 
 self.addEventListener("install", () => self.skipWaiting());
 
@@ -11,6 +11,16 @@ self.addEventListener("activate", (e) => {
       const keys = await caches.keys();
       await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
       await self.clients.claim();
+      // a new SW version means a new deploy: re-navigate every open window so
+      // long-lived tabs / installed PWAs pick up the fresh index + bundle
+      const wins = await self.clients.matchAll({ type: "window" });
+      for (const c of wins) {
+        try {
+          await c.navigate(c.url);
+        } catch (err) {
+          /* window not navigable (e.g. devtools) — it'll refresh on next open */
+        }
+      }
     })()
   );
 });

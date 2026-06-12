@@ -36,6 +36,22 @@ createRoot(document.getElementById("root")).render(<JlptN5Srs />);
 // Register the service worker (installable PWA + offline). Scoped to the app root.
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch(() => {});
+    navigator.serviceWorker
+      .register("./sw.js")
+      .then((reg) => {
+        // standalone PWAs never "navigate", so the browser rarely re-checks sw.js;
+        // poke it whenever the app comes back to the foreground
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") reg.update().catch(() => {});
+        });
+      })
+      .catch(() => {});
+    // when an updated SW takes control, reload once to run the new bundle
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (reloaded) return;
+      reloaded = true;
+      window.location.reload();
+    });
   });
 }
