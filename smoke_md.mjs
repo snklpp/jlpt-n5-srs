@@ -5,8 +5,8 @@ import { readFileSync } from "fs";
 const src = readFileSync("/Users/sankalpkumar/Desktop/jlpt_n3/JlptN5Srs.jsx", "utf-8");
 const DECK = JSON.parse(src.split("\n").find((l) => l.startsWith("const DECK = ")).slice("const DECK = ".length).replace(/;\s*$/, ""));
 
-// every u-verb card (sections 7, 22, 43) carries a deck-level md breakdown in the new format
-const sis = [7, 22, 43];
+// every verb-group card (G1: 7/22/43, G2: 8/23/44, G3: 24) carries a deck-level md breakdown
+const sis = [7, 22, 43, 8, 23, 44, 24];
 let total = 0, withMd = 0, wellFormed = 0;
 for (const si of sis)
   for (const c of DECK[si].cards) {
@@ -52,16 +52,20 @@ const seedOk = !!ta && ta.value.includes("会う") && ta.value.includes("AAO");
 console.log("editor seeds from md:", seedOk);
 click(byText("Cancel")); await wait(150);
 
-// Revision merged group 1 shows md breakdowns too
+// Revision merged groups 1–3 show md breakdowns too
 click([...root.querySelectorAll("header button")].find(b=>(b.textContent||"").includes("‹"))); await wait(150);
 click(byText("Revision")); await wait(180);
-click(byText("Verbs · Group 1 (u-verbs)")); await wait(260);
-click(byText("Show answer")); await wait(200);
-t = root.textContent || "";
-const revOk = t.includes("Kanji breakdown") && t.includes("Sound trick") && t.includes("Link:");
-console.log("revision group 1 card shows md breakdown:", revOk);
+const groupOk = [];
+for (const g of ["Verbs · Group 1 (u-verbs)", "Verbs · Group 2 (ru-verbs)", "Verbs · Group 3 & Irregular"]) {
+  click(byText(g)); await wait(260);
+  click(byText("Show answer")); await wait(200);
+  t = root.textContent || "";
+  groupOk.push(t.includes("Kanji breakdown") && t.includes("Sound trick") && t.includes("Link:"));
+  click([...root.querySelectorAll("header button")].find(b=>(b.textContent||"").includes("‹"))); await wait(180);
+}
+console.log("revision groups 1/2/3 show md breakdowns:", groupOk.join(","));
 
 console.log("errors:",errs.length,"warnings:",warns.length);
 errs.slice(0,4).forEach(e=>console.log("  ERR "+e.slice(0,160)));
-const ok = total===312 && withMd===312 && wellFormed===312 && otherMd.length===0 && renderOk && noBadge && seedOk && revOk && errs.length===0 && warns.length===0;
+const ok = total===534 && withMd===534 && wellFormed===534 && otherMd.length===0 && renderOk && noBadge && seedOk && groupOk.every(Boolean) && errs.length===0 && warns.length===0;
 console.log("RESULT:", ok?"PASS ✅":"CHECK ❌");
