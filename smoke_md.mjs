@@ -5,8 +5,9 @@ import { readFileSync } from "fs";
 const src = readFileSync("/Users/sankalpkumar/Desktop/jlpt_n3/JlptN5Srs.jsx", "utf-8");
 const DECK = JSON.parse(src.split("\n").find((l) => l.startsWith("const DECK = ")).slice("const DECK = ".length).replace(/;\s*$/, ""));
 
-// every verb-group card (G1: 7/22/43, G2: 8/23/44, G3: 24) carries a deck-level md breakdown
-const sis = [7, 22, 43, 8, 23, 44, 24];
+// every covered card carries a deck-level md breakdown:
+// verbs G1 7/22/43, G2 8/23/44, G3 24 · i-adj 9/40 · na-adj 10/39 · adverbs/conj/expr 11/13/25/41/42
+const sis = [7, 22, 43, 8, 23, 44, 24, 9, 40, 10, 39, 11, 13, 25, 41, 42];
 let total = 0, withMd = 0, wellFormed = 0;
 for (const si of sis)
   for (const c of DECK[si].cards) {
@@ -40,8 +41,8 @@ window.eval(res.outputFiles[0].text); window.__m(); await wait(700);
 
 // bdRev migration: stale note on md card purged, other note kept, epoch stamped
 const saved = mem.jlpt_n5_srs_v1 || {};
-const migOk = saved.bdRev === 1 && saved.bdEdits && !("7.0" in saved.bdEdits) && saved.bdEdits["16.0"] === "KEEP ME";
-console.log("bdRev migration (7.0 purged, 16.0 kept, bdRev=1):", migOk);
+const migOk = saved.bdRev === 2 && saved.bdEdits && !("7.0" in saved.bdEdits) && saved.bdEdits["16.0"] === "KEEP ME";
+console.log("bdRev migration (7.0 purged, 16.0 kept, bdRev=2):", migOk);
 
 // study N5 U-Verbs: first card 会う should render the md breakdown after reveal
 click(byText("U-Verbs")); await wait(260);
@@ -51,6 +52,13 @@ const renderOk = t.includes("Kanji breakdown") && t.includes("AAO") && t.include
 console.log("会う md rendered after reveal:", renderOk);
 const noBadge = !t.includes("✎ edited");
 console.log("no '✎ edited' badge for deck-level md:", noBadge);
+
+// Copy button copies the note and toasts
+let copied = null;
+Object.defineProperty(window.navigator, "clipboard", { value: { writeText: async (t) => { copied = t; } }, configurable: true });
+click(byText("Copy")); await wait(150);
+const copyOk = typeof copied === "string" && copied.includes("会う") && copied.includes("AAO") && (root.textContent || "").includes("Card copied");
+console.log("copy button copies md + toasts:", copyOk);
 
 // Edit must seed from card.md
 click(byText("Edit")); await wait(200);
@@ -63,16 +71,16 @@ click(byText("Cancel")); await wait(150);
 click([...root.querySelectorAll("header button")].find(b=>(b.textContent||"").includes("‹"))); await wait(150);
 click(byText("Revision")); await wait(180);
 const groupOk = [];
-for (const g of ["Verbs · Group 1 (u-verbs)", "Verbs · Group 2 (ru-verbs)", "Verbs · Group 3 & Irregular"]) {
+for (const g of ["Verbs · Group 1 (u-verbs)", "Verbs · Group 2 (ru-verbs)", "Verbs · Group 3 & Irregular", "i-Adjectives", "na-Adjectives", "Adverbs, Conjunctions & Expressions"]) {
   click(byText(g)); await wait(260);
   click(byText("Show answer")); await wait(200);
   t = root.textContent || "";
   groupOk.push(t.includes("Kanji breakdown") && t.includes("Sound trick") && t.includes("Link:"));
   click([...root.querySelectorAll("header button")].find(b=>(b.textContent||"").includes("‹"))); await wait(180);
 }
-console.log("revision groups 1/2/3 show md breakdowns:", groupOk.join(","));
+console.log("revision groups (verbs 1-3, i-adj, na-adj, adverbs) show md breakdowns:", groupOk.join(","));
 
 console.log("errors:",errs.length,"warnings:",warns.length);
 errs.slice(0,4).forEach(e=>console.log("  ERR "+e.slice(0,160)));
-const ok = total===534 && withMd===534 && wellFormed===534 && otherMd.length===0 && migOk && renderOk && noBadge && seedOk && groupOk.every(Boolean) && errs.length===0 && warns.length===0;
+const ok = total===1022 && withMd===1022 && wellFormed===1022 && otherMd.length===0 && migOk && renderOk && noBadge && copyOk && seedOk && groupOk.every(Boolean) && errs.length===0 && warns.length===0;
 console.log("RESULT:", ok?"PASS ✅":"CHECK ❌");
