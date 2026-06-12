@@ -71,6 +71,20 @@ function stripOldN3(s) {
   };
   return { ...s, sched: keep(s.sched), revSched: keep(s.revSched), revKnown: keep(s.revKnown), bdEdits: keep(s.bdEdits) };
 }
+/* bdEdits epoch. Bumped when the verb-group sections got built-in md mnemonic cards
+   (2026-06-12): old pasted notes on those cards are superseded by card.md and must be
+   dropped ONCE, or they keep masking the new cards everywhere. Notes on cards without
+   a built-in md card are kept, and edits saved after this carry bdRev and are kept. */
+const BD_REV = 1;
+function stripSupersededEdits(s) {
+  if (!s || s.bdRev === BD_REV || !s.bdEdits) return s;
+  const out = {};
+  for (const k in s.bdEdits) {
+    const c = CARD_BY_ID[k];
+    if (!(c && c.md)) out[k] = s.bdEdits[k];
+  }
+  return { ...s, bdEdits: out };
+}
 let _mem = null; // in-memory fallback when window.storage is blocked
 
 async function loadState() {
@@ -694,6 +708,7 @@ export default function JlptN5Srs() {
   function applyData(s) {
     if (!s) return;
     s = stripOldN3(s); // data saved before the N3 deck replacement: drop keys that point at the old N3 cards
+    s = stripSupersededEdits(s); // pre-md notes on verb-group cards: superseded by card.md
     if (s.sched) setSched(s.sched);
     if (s.settings) setSettings((p) => ({ ...p, ...s.settings }));
     if (s.theme) setTheme(s.theme);
@@ -715,6 +730,7 @@ export default function JlptN5Srs() {
   function applyRemote(data) {
     if (!data) return;
     data = stripOldN3(data); // a device still on the old deck may push old-revision data
+    data = stripSupersededEdits(data); // a stale device may push pre-md notes on verb-group cards
     if (data.sched) setSched(data.sched);
     if (data.settings) setSettings((p) => ({ ...p, ...data.settings }));
     if (data.theme) setTheme(data.theme);
@@ -836,7 +852,7 @@ export default function JlptN5Srs() {
   /* ---- persist progress + last screen + theme ---- */
   useEffect(() => {
     if (!ready) return;
-    saveState({ v: 1, deckRev: DECK_REV, sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, sortMode, cardScale, revKnown, revSched, bdEdits, syncTs, syncOn });
+    saveState({ v: 1, deckRev: DECK_REV, bdRev: BD_REV, sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, sortMode, cardScale, revKnown, revSched, bdEdits, syncTs, syncOn });
   }, [sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, sortMode, cardScale, revKnown, revSched, bdEdits, syncTs, syncOn, ready]);
 
   /* ---- scope cards (optionally re-ordered most-frequent-first) ---- */
@@ -1178,7 +1194,7 @@ export default function JlptN5Srs() {
 
   /* ---- counters for study header ---- */
   // data-only snapshot for cross-device transfer (no navigation fields)
-  const exportBlob = { v: 1, deckRev: DECK_REV, sched, daily, settings, theme, homeMode, revMode, sortMode, revKnown, revSched, bdEdits };
+  const exportBlob = { v: 1, deckRev: DECK_REV, bdRev: BD_REV, sched, daily, settings, theme, homeMode, revMode, sortMode, revKnown, revSched, bdEdits };
   const exportJson = JSON.stringify(exportBlob);
 
   /* ---- cloud sync: pull on open / focus / interval, push (debounced) on change ---- */

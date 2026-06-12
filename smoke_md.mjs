@@ -23,7 +23,9 @@ const res = await build({ stdin: { contents: entry, resolveDir: "/Users/sankalpk
 const dom = new JSDOM(`<!DOCTYPE html><html><head><meta name="theme-color" content="#000"></head><body><div id="root"></div></body></html>`, { runScripts: "outside-only", pretendToBeVisual: true });
 const { window } = dom;
 window.matchMedia = () => ({ matches: false, addEventListener(){}, removeEventListener(){}, addListener(){}, removeListener(){} });
-const mem = {};
+// seed pre-md state: a stale pasted note on an md card (7.0 会う) must be purged once
+// (bdRev migration); a note on a non-md card (16.0) must survive
+const mem = { jlpt_n5_srs_v1: { v: 1, deckRev: 2, bdEdits: { "7.0": "OLD SOUND TRICK NOTE", "16.0": "KEEP ME" } } };
 window.storage = { get: async (k) => (k in mem ? mem[k] : null), set: async (k, v) => { mem[k] = v; } };
 window.requestAnimationFrame=(cb)=>setTimeout(()=>cb(Date.now()),0); window.cancelAnimationFrame=(id)=>clearTimeout(id);
 window.fetch = async () => ({ json: async () => ({ ts: 0, data: null }) });
@@ -35,6 +37,11 @@ const click=(el)=>el&&el.dispatchEvent(new window.MouseEvent("click",{bubbles:tr
 const wait=(ms)=>new Promise(r=>setTimeout(r,ms));
 
 window.eval(res.outputFiles[0].text); window.__m(); await wait(700);
+
+// bdRev migration: stale note on md card purged, other note kept, epoch stamped
+const saved = mem.jlpt_n5_srs_v1 || {};
+const migOk = saved.bdRev === 1 && saved.bdEdits && !("7.0" in saved.bdEdits) && saved.bdEdits["16.0"] === "KEEP ME";
+console.log("bdRev migration (7.0 purged, 16.0 kept, bdRev=1):", migOk);
 
 // study N5 U-Verbs: first card 会う should render the md breakdown after reveal
 click(byText("U-Verbs")); await wait(260);
@@ -67,5 +74,5 @@ console.log("revision groups 1/2/3 show md breakdowns:", groupOk.join(","));
 
 console.log("errors:",errs.length,"warnings:",warns.length);
 errs.slice(0,4).forEach(e=>console.log("  ERR "+e.slice(0,160)));
-const ok = total===534 && withMd===534 && wellFormed===534 && otherMd.length===0 && renderOk && noBadge && seedOk && groupOk.every(Boolean) && errs.length===0 && warns.length===0;
+const ok = total===534 && withMd===534 && wellFormed===534 && otherMd.length===0 && migOk && renderOk && noBadge && seedOk && groupOk.every(Boolean) && errs.length===0 && warns.length===0;
 console.log("RESULT:", ok?"PASS ✅":"CHECK ❌");
