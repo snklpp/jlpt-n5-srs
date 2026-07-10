@@ -4,6 +4,7 @@ services:
   - type: web
     name: jlpt-n5-srs
     runtime: static
+    autoDeploy: true
     buildCommand: npm install && npm run build
     staticPublishPath: ./dist
     pullRequestPreviewsEnabled: false
