@@ -490,7 +490,7 @@ function stripOldN3(s) {
     for (const k in m) if (!(parseInt(k, 10) >= 26)) out[k] = m[k];
     return out;
   };
-  return { ...s, sched: keep(s.sched), revSched: keep(s.revSched), revKnown: keep(s.revKnown), bdEdits: keep(s.bdEdits) };
+  return { ...s, sched: keep(s.sched), revSched: keep(s.revSched), revKnown: keep(s.revKnown), bdEdits: keep(s.bdEdits), bdEditTs: keep(s.bdEditTs) };
 }
 /* bdEdits epoch. Bumped whenever more sections get built-in md mnemonic cards:
    old pasted notes on those cards are superseded by card.md and must be dropped ONCE,
@@ -503,11 +503,15 @@ const BD_REV = 4;
 function stripSupersededEdits(s) {
   if (!s || s.bdRev === BD_REV || !s.bdEdits) return s;
   const out = {};
+  const outTs = {};
   for (const k in s.bdEdits) {
     const c = CARD_BY_ID[k];
-    if (!(c && c.md)) out[k] = s.bdEdits[k];
+    if (!(c && c.md)) {
+      out[k] = s.bdEdits[k];
+      if (s.bdEditTs && s.bdEditTs[k] != null) outTs[k] = s.bdEditTs[k];
+    }
   }
-  return { ...s, bdEdits: out };
+  return { ...s, bdEdits: out, bdEditTs: outTs };
 }
 let _mem = null; // in-memory fallback when window.storage is blocked
 
@@ -1129,6 +1133,7 @@ export default function JlptN5Srs() {
   const [revPos, setRevPos] = useState(0); // pointer into the current revision queue
   const [revMode, setRevMode] = useState("srs"); // revision answer mode: 'srs' = Anki grades (default) · 'flip' = Got it/Again
   const [bdEdits, setBdEdits] = useState({}); // { cardId: markdownString } — user-edited breakdowns, global across all scopes
+  const [bdEditTs, setBdEditTs] = useState({}); // { cardId: timestamp } — lets notes merge across devices independently of progress
   const [editing, setEditing] = useState(null); // cardId currently open in the breakdown editor, or null
   const [syncTs, setSyncTs] = useState(0); // timestamp of this device's data (for last-write-wins cloud sync)
   const [syncOn, setSyncOn] = useState(true); // auto-sync across devices
@@ -1156,12 +1161,50 @@ export default function JlptN5Srs() {
     if (s.sortMode) setSortMode(s.sortMode);
     if (typeof s.cardScale === "number" && s.cardScale >= 0.7 && s.cardScale <= 2) setCardScale(s.cardScale);
     if (s.bdEdits) setBdEdits(s.bdEdits);
+    if (s.bdEditTs) setBdEditTs(s.bdEditTs);
     if (s.revKnown) setRevKnown(s.revKnown);
     if (s.revSched) setRevSched(s.revSched);
   }
 
+  function mergeRemoteNotes(data, remoteTs) {
+    if (!data?.bdEdits) return;
+    const accepted = {};
+    const acceptedTs = {};
+    for (const id in data.bdEdits) {
+      const incomingTs = Number(data.bdEditTs?.[id] || remoteTs || 0);
+      const localTs = Number(bdEditTs[id] || 0);
+      if (incomingTs >= localTs) {
+        accepted[id] = data.bdEdits[id];
+        acceptedTs[id] = incomingTs;
+      }
+    }
+    if (!Object.keys(accepted).length) return;
+    setBdEdits((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const id in accepted) {
+        if (next[id] !== accepted[id]) {
+          next[id] = accepted[id];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    setBdEditTs((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const id in acceptedTs) {
+        if (Number(next[id] || 0) < acceptedTs[id]) {
+          next[id] = acceptedTs[id];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }
+
   /* ---- merge remote cloud data: replace progress, UNION notes & known-marks (never drop a note) ---- */
-  function applyRemote(data) {
+  function applyRemote(data, remoteTs = 0) {
     if (!data) return;
     data = stripOldN3(data); // a device still on the old deck may push old-revision data
     data = stripSupersededEdits(data); // a stale device may push pre-md notes on verb-group cards
@@ -1178,7 +1221,7 @@ export default function JlptN5Srs() {
     if (data.sortMode) setSortMode(data.sortMode);
     if (data.revKnown) setRevKnown(data.revKnown); // replace (LWW) so a reset propagates; notes stay unioned below
     if (data.revSched) setRevSched(data.revSched); // replace (LWW) so a revision reset propagates
-    if (data.bdEdits) setBdEdits((p) => ({ ...p, ...data.bdEdits }));
+    mergeRemoteNotes(data, remoteTs);
   }
   useEffect(() => {
     syncTsRef.current = syncTs;
@@ -1241,9 +1284,11 @@ export default function JlptN5Srs() {
         }
       }
 
+      if (remoteData) mergeRemoteNotes(stripSupersededEdits(stripOldN3(remoteData)), remoteTs);
+
       if (remoteData && remoteTs > syncTsRef.current) {
         lastPushedJsonRef.current = JSON.stringify(remoteData);
-        applyRemote(remoteData);
+        applyRemote(remoteData, remoteTs);
         syncTsRef.current = remoteTs;
         setSyncTs(remoteTs);
       }
@@ -1372,8 +1417,8 @@ export default function JlptN5Srs() {
   /* ---- persist progress + last screen + theme ---- */
   useEffect(() => {
     if (!ready) return;
-    saveState({ v: 1, deckRev: DECK_REV, bdRev: BD_REV, sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, sortMode, cardScale, revKnown, revSched, bdEdits, syncTs, syncOn });
-  }, [sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, sortMode, cardScale, revKnown, revSched, bdEdits, syncTs, syncOn, ready]);
+    saveState({ v: 1, deckRev: DECK_REV, bdRev: BD_REV, sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, sortMode, cardScale, revKnown, revSched, bdEdits, bdEditTs, syncTs, syncOn });
+  }, [sched, daily, settings, theme, view, scope, cur, revealed, homeMode, revMode, sortMode, cardScale, revKnown, revSched, bdEdits, bdEditTs, syncTs, syncOn, ready]);
 
   /* ---- scope cards (optionally re-ordered most-frequent-first) ---- */
   const scopeCards = useMemo(() => {
@@ -1697,6 +1742,13 @@ export default function JlptN5Srs() {
     setFlash(field);
     setTimeout(() => setFlash((f) => (f === field ? null : f)), 320);
   }
+  function markNoteEdited(id, text) {
+    const ts = Date.now();
+    setBdEdits((m) => ({ ...m, [id]: text }));
+    setBdEditTs((m) => ({ ...m, [id]: ts }));
+    setSyncTs(ts);
+    syncTsRef.current = ts;
+  }
   /* ---- one-tap paste: clipboard fully replaces this card's breakdown, saved + synced automatically ---- */
   async function pasteToCard(id) {
     const text = await readClipboard();
@@ -1710,13 +1762,13 @@ export default function JlptN5Srs() {
       fireToast("Clipboard is empty");
       return;
     }
-    setBdEdits((m) => ({ ...m, [id]: text })); // auto-saved by the persist effect + pushed by cloud sync
+    markNoteEdited(id, text); // auto-saved by the persist effect + pushed by cloud sync
     fireToast("Card replaced from clipboard");
   }
 
   /* ---- counters for study header ---- */
   // data-only snapshot for cross-device transfer (no navigation fields)
-  const exportBlob = { v: 1, deckRev: DECK_REV, bdRev: BD_REV, sched, daily, settings, theme, homeMode, revMode, sortMode, revKnown, revSched, bdEdits };
+  const exportBlob = { v: 1, deckRev: DECK_REV, bdRev: BD_REV, sched, daily, settings, theme, homeMode, revMode, sortMode, revKnown, revSched, bdEdits, bdEditTs };
   const exportJson = JSON.stringify(exportBlob);
 
   /* ---- cloud sync: pull on open / focus / interval, push (debounced) on change ---- */
@@ -2250,6 +2302,7 @@ export default function JlptN5Srs() {
             }}
             bdEdits={bdEdits}
             setBdEdits={setBdEdits}
+            setBdEditTs={setBdEditTs}
             exportBlob={exportBlob}
             onImportData={applyData}
             syncOn={syncOn}
@@ -2786,6 +2839,7 @@ export default function JlptN5Srs() {
           }}
           bdEdits={bdEdits}
           setBdEdits={setBdEdits}
+          setBdEditTs={setBdEditTs}
           exportBlob={exportBlob}
           onImportData={applyData}
           syncOn={syncOn}
@@ -2802,15 +2856,23 @@ export default function JlptN5Srs() {
           initial={bdEdits[card.id] != null ? bdEdits[card.id] : serializeBreakdown(card)}
           hasOverride={bdEdits[card.id] != null}
           onSave={(t) => {
-            setBdEdits((m) => ({ ...m, [card.id]: t }));
+            markNoteEdited(card.id, t);
             setEditing(null);
           }}
           onReset={() => {
+            const ts = Date.now();
             setBdEdits((m) => {
               const n = { ...m };
               delete n[card.id];
               return n;
             });
+            setBdEditTs((m) => {
+              const n = { ...m };
+              delete n[card.id];
+              return n;
+            });
+            setSyncTs(ts);
+            syncTsRef.current = ts;
             setEditing(null);
           }}
           onClose={() => setEditing(null)}
@@ -3109,7 +3171,7 @@ function CopyTarget({ children, onTap, active, flash, center }) {
   );
 }
 
-function SettingsSheet({ settings, setSettings, theme, setTheme, stats, daily, confirmReset, setConfirmReset, onReset, onClose, bdEdits, setBdEdits, exportBlob, onImportData, syncOn, setSyncOn, syncState, cardScale, setCardScale }) {
+function SettingsSheet({ settings, setSettings, theme, setTheme, stats, daily, confirmReset, setConfirmReset, onReset, onClose, bdEdits, setBdEdits, setBdEditTs, exportBlob, onImportData, syncOn, setSyncOn, syncState, cardScale, setCardScale }) {
   const dirs = [
     { v: "jp", t: "JP → EN", d: "see the word, recall the meaning" },
     { v: "en", t: "EN → JP", d: "see the meaning, recall the word" },
@@ -3256,7 +3318,7 @@ function SettingsSheet({ settings, setSettings, theme, setTheme, stats, daily, c
         </div>
 
         <Label style={{ marginTop: 20 }}>Sync across devices</Label>
-        <DeviceSync exportBlob={exportBlob} onImportData={onImportData} bdEdits={bdEdits} setBdEdits={setBdEdits} syncOn={syncOn} setSyncOn={setSyncOn} syncState={syncState} />
+        <DeviceSync exportBlob={exportBlob} onImportData={onImportData} bdEdits={bdEdits} setBdEdits={setBdEdits} setBdEditTs={setBdEditTs} syncOn={syncOn} setSyncOn={setSyncOn} syncState={syncState} />
 
         <Label style={{ marginTop: 20 }}>Reset</Label>
         {!resetTarget ? (
@@ -3410,7 +3472,7 @@ function BreakdownEditor({ title, initial, hasOverride, onSave, onReset, onClose
 }
 
 /* ---- auto cloud sync + manual transfer (Settings) ---- */
-function DeviceSync({ exportBlob, onImportData, bdEdits, setBdEdits, syncOn, setSyncOn, syncState }) {
+function DeviceSync({ exportBlob, onImportData, bdEdits, setBdEdits, setBdEditTs, syncOn, setSyncOn, syncState }) {
   const count = Object.keys(bdEdits || {}).length;
   const [open, setOpen] = useState(false);
   const [imp, setImp] = useState("");
@@ -3490,7 +3552,7 @@ function DeviceSync({ exportBlob, onImportData, bdEdits, setBdEdits, syncOn, set
           </button>
         ) : (
           <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-            <button onClick={() => { setBdEdits({}); setConfirmClear(false); }} style={{ ...resetBtn, marginTop: 0, flex: 1, background: C.again, color: "#fff", border: "none" }}>
+            <button onClick={() => { setBdEdits({}); setBdEditTs({}); setConfirmClear(false); }} style={{ ...resetBtn, marginTop: 0, flex: 1, background: C.again, color: "#fff", border: "none" }}>
               Erase all notes
             </button>
             <button onClick={() => setConfirmClear(false)} style={{ ...resetBtn, marginTop: 0, flex: 1 }}>
