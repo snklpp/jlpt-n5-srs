@@ -674,8 +674,8 @@ const SUPABASE_KEY =
   "sb_publishable_Qipa4666-B0PNiKsTpF_Ew_GtmmBm9V";
 const SUPABASE_TABLE = import.meta.env.VITE_SUPABASE_TABLE || "jlpt_sync_state";
 const USE_SUPABASE = !!(SUPABASE_URL && SUPABASE_KEY);
-const CLOUD_URL = "https://jlpt-sync.onrender.com";
-const CLOUD_ROOM = "default";
+const CLOUD_URL = (import.meta.env.VITE_CLOUD_URL || import.meta.env.VITE_SYNC_URL || "https://jlpt-sync.onrender.com").trim();
+const CLOUD_ROOM = (import.meta.env.VITE_SYNC_ROOM || "default").trim();
 
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700;900&family=Zen+Maru+Gothic:wght@400;500;700&display=swap');
@@ -1184,42 +1184,68 @@ export default function JlptN5Srs() {
     syncTsRef.current = syncTs;
   }, [syncTs]);
 
+  function tryParseJson(text) {
+    if (!text) return null;
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      return null;
+    }
+  }
+
   async function pullCloud() {
     if (!syncOn) return;
     try {
       setSyncState("syncing");
+      let remoteData = null;
+      let remoteTs = 0;
+
       if (USE_SUPABASE) {
-        const r = await fetch(
-          `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}?room=eq.${encodeURIComponent(CLOUD_ROOM)}&select=room,ts,data&limit=1`,
-          {
-            cache: "no-store",
-            headers: {
-              apikey: SUPABASE_KEY,
-              Authorization: `Bearer ${SUPABASE_KEY}`,
-              Accept: "application/json",
-            },
+        try {
+          const r = await fetch(
+            `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}?room=eq.${encodeURIComponent(CLOUD_ROOM)}&select=room,ts,data&limit=1`,
+            {
+              cache: "no-store",
+              headers: {
+                apikey: SUPABASE_KEY,
+                Authorization: `Bearer ${SUPABASE_KEY}`,
+                Accept: "application/json",
+              },
+            }
+          );
+          if (r.ok) {
+            const rows = await r.json();
+            const row = Array.isArray(rows) ? rows[0] : null;
+            if (row && row.data) {
+              remoteData = row.data;
+              remoteTs = Number(row.ts);
+            }
+          } else {
+            const text = await r.text();
+            const body = tryParseJson(text);
+            const missingTable = r.status === 404 || /PGRST205|Could not find the table/i.test(body?.message || "");
+            if (!missingTable) throw new Error("supabase pull failed");
           }
-        );
-        if (!r.ok) throw new Error("supabase pull failed");
-        const rows = await r.json();
-        const row = Array.isArray(rows) ? rows[0] : null;
-        if (row && row.data && Number(row.ts) > syncTsRef.current) {
-          lastPushedJsonRef.current = JSON.stringify(row.data);
-          applyRemote(row.data);
-          const ts = Number(row.ts);
-          syncTsRef.current = ts;
-          setSyncTs(ts);
+        } catch (e) {
+          // fall back to the Render sync service when Supabase is absent or misconfigured.
         }
-      } else {
+      }
+
+      if (!remoteData && CLOUD_URL) {
         const r = await fetch(CLOUD_URL + "/api/state?room=" + CLOUD_ROOM, { cache: "no-store" });
+        if (!r.ok) throw new Error("render pull failed");
         const j = await r.json();
-        if (j && j.data && Number(j.ts) > syncTsRef.current) {
-          lastPushedJsonRef.current = JSON.stringify(j.data);
-          applyRemote(j.data);
-          const ts = Number(j.ts);
-          syncTsRef.current = ts;
-          setSyncTs(ts);
+        if (j && j.data) {
+          remoteData = j.data;
+          remoteTs = Number(j.ts);
         }
+      }
+
+      if (remoteData && remoteTs > syncTsRef.current) {
+        lastPushedJsonRef.current = JSON.stringify(remoteData);
+        applyRemote(remoteData);
+        syncTsRef.current = remoteTs;
+        setSyncTs(remoteTs);
       }
       setSyncState("ok");
     } catch (e) {
@@ -1228,34 +1254,52 @@ export default function JlptN5Srs() {
       initialPullDoneRef.current = true;
     }
   }
+
   async function pushCloud(blob, ts, json) {
     if (!syncOn) return;
     try {
       setSyncState("syncing");
+      let pushed = false;
+
       if (USE_SUPABASE) {
-        const r = await fetch(
-          `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}?on_conflict=room`,
-          {
-            method: "POST",
-            headers: {
-              apikey: SUPABASE_KEY,
-              Authorization: `Bearer ${SUPABASE_KEY}`,
-              "Content-Type": "application/json",
-              Prefer: "resolution=merge-duplicates,return=representation",
-            },
-            body: JSON.stringify({ room: CLOUD_ROOM, ts, data: blob }),
+        try {
+          const r = await fetch(
+            `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}?on_conflict=room`,
+            {
+              method: "POST",
+              headers: {
+                apikey: SUPABASE_KEY,
+                Authorization: `Bearer ${SUPABASE_KEY}`,
+                "Content-Type": "application/json",
+                Prefer: "resolution=merge-duplicates,return=representation",
+              },
+              body: JSON.stringify({ room: CLOUD_ROOM, ts, data: blob }),
+            }
+          );
+          if (r.ok) {
+            await r.json();
+            pushed = true;
+          } else {
+            const text = await r.text();
+            const body = tryParseJson(text);
+            const missingTable = r.status === 404 || /PGRST205|Could not find the table/i.test(body?.message || "");
+            if (!missingTable) throw new Error("supabase push failed");
           }
-        );
-        if (!r.ok) throw new Error("supabase push failed");
-        await r.json();
-      } else {
+        } catch (e) {
+          // fall back to the Render sync service when Supabase is absent or misconfigured.
+        }
+      }
+
+      if (!pushed && CLOUD_URL) {
         const r = await fetch(CLOUD_URL + "/api/state?room=" + CLOUD_ROOM, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ts, data: blob }),
         });
+        if (!r.ok) throw new Error("render push failed");
         await r.json();
       }
+
       lastPushedJsonRef.current = json;
       setSyncState("ok");
     } catch (e) {

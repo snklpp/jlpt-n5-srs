@@ -32,15 +32,17 @@ npm run preview    # serve the production build locally
    - **Publish Directory:** `dist`
 4. **Create Static Site.**
 
-It's a static SPA, so the free Static Site plan is enough. Progress is
-stored per-browser via `localStorage`; for cross-device sync, replace the
-`window.storage` shim in `src/main.jsx` with a backend.
+It's a static SPA, so the free Static Site plan is enough. The blueprint in
+`render.yaml` now also deploys a lightweight sync service plus a Postgres
+database for cross-device note and progress sync.
 
 ## Cross-device notes sync
 
-The app can sync edited card notes and progress through Supabase.
+The app syncs edited card notes and progress through either Supabase or the
+Render-hosted sync service.
 
-Set these environment variables in Render:
+If you want to use Supabase instead of the Render sync backend, set these
+environment variables in Render:
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
