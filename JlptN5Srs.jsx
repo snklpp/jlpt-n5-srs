@@ -89,7 +89,7 @@ const GENKI_LESSON_1 = [
   ["おとうと", "otooto", "younger brother", "弟"],
 ];
 
-const GENKI_DECK = [{ name: "Lesson 1", level: "Genki", cards: GENKI_LESSON_1.map(([kana, romaji, meaning, kanji]) => ({ kana, romaji, meaning, ...(kanji ? { kanji } : {}) })) }];
+const GENKI_DECK = [{ name: "Lesson 6", level: "Genki", cards: GENKI_LESSON_1.map(([kana, romaji, meaning, kanji]) => ({ kana, romaji, meaning, ...(kanji ? { kanji } : {}) })) }];
 
 /* ----- flatten deck into addressable cards ----- */
 const SECTIONS = DECK.map((s) => s.name);
@@ -1712,7 +1712,7 @@ export default function JlptN5Srs() {
                   </span>
                 </Ring>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: FJP, fontSize: 10.5, letterSpacing: 2.5, color: C.faint }}>GENKI · LESSON 1</div>
+                  <div style={{ fontFamily: FJP, fontSize: 10.5, letterSpacing: 2.5, color: C.faint }}>GENKI · LESSON 6</div>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 4 }}>
                     <span style={{ fontFamily: FDISP, fontWeight: 900, fontSize: 27, color: C.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
                       {genkiTotalSeen}
@@ -1720,16 +1720,16 @@ export default function JlptN5Srs() {
                     <span style={{ fontFamily: FJP, fontSize: 12.5, color: C.sub }}>/ {genkiTotalCards} learned</span>
                   </div>
                   <div style={{ fontFamily: FJP, fontSize: 12, color: C.sub, marginTop: 4 }}>
-                    Lesson 1 vocabulary set
+                    Lesson 6 vocabulary set
                   </div>
                 </div>
               </div>
             </div>
             <button onClick={() => startStudy({ type: "genki" })} className="n5press n5lift n5stagger" style={{ ...allCardBtn, animationDelay: ".05s" }}>
               <div>
-                <div style={{ fontFamily: FDISP, fontWeight: 800, fontSize: 18, color: INK_GOLD }}>Study lesson 1</div>
+                <div style={{ fontFamily: FDISP, fontWeight: 800, fontSize: 18, color: INK_GOLD }}>Study lesson 6</div>
                 <div style={{ fontSize: 12.5, color: "rgba(42,28,6,0.68)", marginTop: 3, fontFamily: FJP }}>
-                  All {genkiTotalCards} words · Lesson 1
+                  All {genkiTotalCards} words · Lesson 6
                 </div>
               </div>
               <div style={{ display: "flex", gap: 6 }}>
@@ -1738,7 +1738,7 @@ export default function JlptN5Srs() {
               </div>
             </button>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "20px 4px 11px" }}>
-              <span style={{ fontSize: 10.5, letterSpacing: 2, color: C.faint, fontFamily: FJP }}>LESSON 1 · {genkiTotalCards} WORDS</span>
+              <span style={{ fontSize: 10.5, letterSpacing: 2, color: C.faint, fontFamily: FJP }}>LESSON 6 · {genkiTotalCards} WORDS</span>
             </div>
             {GENKI_DECK.map((s, si) => {
               const hs = genkiHomeStats[si];
@@ -1910,7 +1910,7 @@ export default function JlptN5Srs() {
               : scope.type === "merged"
               ? scope.mg === -1 ? "Revise everything" : MERGED[scope.mg].name
               : scope.type === "genki"
-              ? "Genki · Lesson 1"
+              ? "Genki · Lesson 6"
               : SECTIONS[scope.si]}
           </div>
         </div>
@@ -2273,7 +2273,7 @@ export default function JlptN5Srs() {
               ) : scope.type === "level" ? (
                 <>Every {scope.level} card has been introduced. 🎉</>
               ) : scope.type === "genki" ? (
-                <>Every Genki lesson 1 card has been introduced. 🎉</>
+                <>Every Genki lesson 6 card has been introduced. 🎉</>
               ) : (
                 <>This section is fully introduced.</>
               )}
