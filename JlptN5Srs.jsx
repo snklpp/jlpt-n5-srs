@@ -89,6 +89,75 @@ const GENKI_LESSON_1 = [
   ["おとうと", "otooto", "younger brother", "弟"],
 ];
 
+const GENKI_LESSON_3 = [
+  // Nouns - Entertainment and Sports
+  ["えいが", "eega", "movie", "映画"],
+  ["おんがく", "ongaku", "music", "音楽"],
+  ["ざっし", "zasshi", "magazine", "雑誌"],
+  ["スポーツ", "supootsu", "sports"],
+  ["デート", "deeto", "date (romantic, not calendar)"],
+  ["テニス", "tenisu", "tennis"],
+  ["テレビ", "terebi", "TV"],
+  // Nouns - Foods and Drinks
+  ["アイスクリーム", "aisukuriimu", "ice cream"],
+  ["ハンバーガー", "hanbaagaa", "hamburger"],
+  ["おさけ", "osake", "sake; alcoholic drink", "お酒"],
+  ["おちゃ", "ocha", "green tea", "お茶"],
+  ["コーヒー", "koohii", "coffee"],
+  ["みず", "mizu", "water", "水"],
+  ["あさごはん", "asagohan", "breakfast", "朝ご飯"],
+  ["ひるごはん", "hirugohan", "lunch", "昼ご飯"],
+  ["ばんごはん", "bangohan", "dinner", "晩ご飯"],
+  // Nouns - Places
+  ["いえ", "ie", "home; house", "家"],
+  ["うち", "uchi", "home; house; my place"],
+  ["がっこう", "gakkou", "school", "学校"],
+  ["カフェ", "kafe", "cafe"],
+  // Nouns - Time
+  ["あした", "ashita", "tomorrow", "明日"],
+  ["きょう", "kyou", "today", "今日"],
+  ["あさ", "asa", "morning", "朝"],
+  ["こんばん", "konban", "tonight", "今晩"],
+  ["まいにち", "mainichi", "every day", "毎日"],
+  ["まいばん", "maiban", "every night", "毎晩"],
+  ["しゅうまつ", "shuumatsu", "weekend", "週末"],
+  ["どようび", "doyoubi", "Saturday", "土曜日"],
+  ["にちようび", "nichiyoubi", "Sunday", "日曜日"],
+  ["いつ", "itsu", "when"],
+  ["〜ごろ", "...goro", "at about..."],
+  // U-verbs
+  ["いく", "iku", "to go（*destination* に/へ）", "行く"],
+  ["かえる", "kaeru", "to go back; to return（*destination* に/へ）", "帰る"],
+  ["きく", "kiku", "to listen; to hear（〜を）", "聞く"],
+  ["のむ", "nomu", "to drink（〜を）", "飲む"],
+  ["はなす", "hanasu", "to speak; to talk（*language* を/で）", "話す"],
+  ["よむ", "yomu", "to read（〜を）", "読む"],
+  // Ru-verbs
+  ["おきる", "okiru", "to get up", "起きる"],
+  ["たべる", "taberu", "to eat（〜を）", "食べる"],
+  ["ねる", "neru", "to sleep; to go to sleep", "寝る"],
+  ["みる", "miru", "to see; to look at; to watch（〜を）", "見る"],
+  // Irregular verbs
+  ["くる", "kuru", "to come（*destination* に/へ）", "来る"],
+  ["する", "suru", "to do（〜を）"],
+  ["べんきょうする", "benkyou suru", "to study（〜を）", "勉強する"],
+  // Adjectives
+  ["いい", "ii", "good"],
+  ["はやい", "hayai", "early", "早い"],
+  // Adverbs
+  ["あまり＋negative", "amari", "not much"],
+  ["ぜんぜん＋negative", "zenzen", "not at all", "全然"],
+  ["たいてい", "taitei", "usually"],
+  ["ちょっと", "chotto", "a little"],
+  ["ときどき", "tokidoki", "sometimes", "時々"],
+  ["よく", "yoku", "often; much"],
+  // Expressions
+  ["そうですね", "sou desu ne", "That's right.; Let me see."],
+  ["でも", "demo", "but"],
+  ["どうですか", "dou desu ka", "How about...?; How is...?"],
+  ["ええ", "ee", "yes"],
+];
+
 const GENKI_LESSON_5 = [
   // Nouns
   ["たべもの", "tabemono", "food", "食べ物"],
@@ -281,6 +350,7 @@ const GENKI_LESSON_6 = [
 
 const GENKI_DECK = [
   { name: "Lesson 1", level: "Genki", cards: GENKI_LESSON_1.map(([kana, romaji, meaning, kanji]) => ({ kana, romaji, meaning, ...(kanji ? { kanji } : {}) })) },
+  { name: "Lesson 3", level: "Genki", cards: GENKI_LESSON_3.map(([kana, romaji, meaning, kanji]) => ({ kana, romaji, meaning, ...(kanji ? { kanji } : {}) })) },
   { name: "Lesson 4", level: "Genki", cards: GENKI_LESSON_4.map(([kana, romaji, meaning, kanji]) => ({ kana, romaji, meaning, ...(kanji ? { kanji } : {}) })) },
   { name: "Lesson 5", level: "Genki", cards: GENKI_LESSON_5.map(([kana, romaji, meaning, kanji]) => ({ kana, romaji, meaning, ...(kanji ? { kanji } : {}) })) },
   { name: "Lesson 6", level: "Genki", cards: GENKI_LESSON_6.map(([kana, romaji, meaning, kanji]) => ({ kana, romaji, meaning, ...(kanji ? { kanji } : {}) })) },
