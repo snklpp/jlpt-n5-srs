@@ -666,8 +666,12 @@ const INK_GOLD = "#2a1c06"; // dark ink for text on the gold→seal gradient (th
 // cross-device auto-sync backend:
 // - Prefer Supabase when VITE_SUPABASE_URL + VITE_SUPABASE_PUBLISHABLE_KEY are present.
 // - Fall back to the existing Render-backed JSON endpoint if Supabase is not configured.
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+const SUPABASE_URL =
+  import.meta.env.VITE_SUPABASE_URL || "https://euhqyrgussmbomahuaec.supabase.co";
+const SUPABASE_KEY =
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  "sb_publishable_Qipa4666-B0PNiKsTpF_Ew_GtmmBm9V";
 const SUPABASE_TABLE = import.meta.env.VITE_SUPABASE_TABLE || "jlpt_sync_state";
 const USE_SUPABASE = !!(SUPABASE_URL && SUPABASE_KEY);
 const CLOUD_URL = "https://jlpt-sync.onrender.com";
