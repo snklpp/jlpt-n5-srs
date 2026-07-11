@@ -89,6 +89,75 @@ const GENKI_LESSON_1 = [
   ["おとうと", "otooto", "younger brother", "弟"],
 ];
 
+const GENKI_LESSON_2 = [
+  // Words That Point
+  ["これ", "kore", "this one"],
+  ["それ", "sore", "that one"],
+  ["あれ", "are", "that one (over there)"],
+  ["どれ", "dore", "which one"],
+  ["この", "kono", "this..."],
+  ["その", "sono", "that..."],
+  ["あの", "ano", "that... (over there)"],
+  ["どの", "dono", "which..."],
+  ["ここ", "koko", "here"],
+  ["そこ", "soko", "there"],
+  ["あそこ", "asoko", "over there"],
+  ["どこ", "doko", "where"],
+  ["だれ", "dare", "who"],
+  // Food
+  ["おいしい", "oishii", "delicious"],
+  ["さかな", "sakana", "fish"],
+  ["とんかつ", "tonkatsu", "pork cutlet"],
+  ["にく", "niku", "meat"],
+  ["メニュー", "menyuu", "menu"],
+  ["やさい", "yasai", "vegetable"],
+  // Things
+  ["かさ", "kasa", "umbrella"],
+  ["かばん", "kaban", "bag"],
+  ["くつ", "kutsu", "shoes"],
+  ["さいふ", "saifu", "wallet"],
+  ["ジーンズ", "jiinzu", "jeans"],
+  ["じてんしゃ", "jitensha", "bicycle"],
+  ["しんぶん", "shinbun", "newspaper"],
+  ["スマホ", "sumaho", "smartphone; mobile"],
+  ["Tシャツ", "tiishatsu", "T-shirt"],
+  ["とけい", "tokei", "watch; clock"],
+  ["ノート", "nooto", "notebook"],
+  ["ペン", "pen", "pen"],
+  ["ぼうし", "booshi", "hat; cap"],
+  ["ほん", "hon", "book"],
+  // Places
+  ["ぎんこう", "ginkoo", "bank"],
+  ["コンビニ", "konbini", "convenience store"],
+  ["トイレ", "toire", "toilet; restroom"],
+  ["としょかん", "toshokan", "library"],
+  ["ゆうびんきょく", "yuubinkyoku", "post office"],
+  // Countries
+  ["イギリス", "Igirisu", "Britain"],
+  ["かんこく", "Kankoku", "Korea"],
+  ["ちゅうごく", "Chuugoku", "China"],
+  // Majors
+  ["えいご", "eego", "English (language)"],
+  ["けいざい", "keezai", "economics"],
+  ["コンピューター", "konpyuutaa", "computer"],
+  ["ビジネス", "bijinesu", "business"],
+  ["れきし", "rekishi", "history"],
+  // Family
+  ["おかあさん", "okaasan", "mother"],
+  ["おとうさん", "otoosan", "father"],
+  // Money Matters
+  ["いくら", "ikura", "how much"],
+  ["〜えん", "...en", "...yen"],
+  ["たかい", "takai", "expensive; high"],
+  // Expressions
+  ["いらっしゃいませ", "irasshaimase", "Welcome (to our store)."],
+  ["（〜を）おねがいします", "(...o) onegaishimasu", "..., please."],
+  ["（〜を）ください", "(...o) kudasai", "Please give me..."],
+  ["じゃあ", "jaa", "then...; if that is the case,..."],
+  ["どうぞ", "doozo", "Please.; Here it is."],
+  ["どうも", "doomo", "Thank you."],
+];
+
 const GENKI_LESSON_3 = [
   // Nouns - Entertainment and Sports
   ["えいが", "eega", "movie", "映画"],
@@ -350,6 +419,7 @@ const GENKI_LESSON_6 = [
 
 const GENKI_DECK = [
   { name: "Lesson 1", level: "Genki", cards: GENKI_LESSON_1.map(([kana, romaji, meaning, kanji]) => ({ kana, romaji, meaning, ...(kanji ? { kanji } : {}) })) },
+  { name: "Lesson 2", level: "Genki", cards: GENKI_LESSON_2.map(([kana, romaji, meaning, kanji]) => ({ kana, romaji, meaning, ...(kanji ? { kanji } : {}) })) },
   { name: "Lesson 3", level: "Genki", cards: GENKI_LESSON_3.map(([kana, romaji, meaning, kanji]) => ({ kana, romaji, meaning, ...(kanji ? { kanji } : {}) })) },
   { name: "Lesson 4", level: "Genki", cards: GENKI_LESSON_4.map(([kana, romaji, meaning, kanji]) => ({ kana, romaji, meaning, ...(kanji ? { kanji } : {}) })) },
   { name: "Lesson 5", level: "Genki", cards: GENKI_LESSON_5.map(([kana, romaji, meaning, kanji]) => ({ kana, romaji, meaning, ...(kanji ? { kanji } : {}) })) },
