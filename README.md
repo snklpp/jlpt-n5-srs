@@ -35,3 +35,44 @@ npm run preview    # serve the production build locally
 It's a static SPA, so the free Static Site plan is enough. Progress is
 stored per-browser via `localStorage`; for cross-device sync, replace the
 `window.storage` shim in `src/main.jsx` with a backend.
+
+## Cross-device notes sync
+
+The app can sync edited card notes and progress through Supabase.
+
+Set these environment variables in Render:
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
+- Optional: `VITE_SUPABASE_TABLE` (defaults to `jlpt_sync_state`)
+
+Create a table like this in Supabase:
+
+```sql
+create table if not exists public.jlpt_sync_state (
+  room text primary key,
+  ts bigint not null,
+  data jsonb not null
+);
+
+alter table public.jlpt_sync_state enable row level security;
+
+create policy "public read jlpt sync"
+on public.jlpt_sync_state
+for select
+using (true);
+
+create policy "public write jlpt sync"
+on public.jlpt_sync_state
+for insert
+with check (true);
+
+create policy "public update jlpt sync"
+on public.jlpt_sync_state
+for update
+using (true)
+with check (true);
+```
+
+The app uses one shared room (`default`) and last-write-wins syncing, so
+notes edited on one device will appear on the others after sync.

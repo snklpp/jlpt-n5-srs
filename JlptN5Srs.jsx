@@ -663,7 +663,13 @@ const FJP = "'Zen Maru Gothic', sans-serif";
 const FDISP = "'Zen Kaku Gothic New', sans-serif";
 const INK_GOLD = "#2a1c06"; // dark ink for text on the gold→seal gradient (theme-independent)
 
-// cross-device auto-sync backend (free Render web service + shared Postgres); single-room, last-write-wins
+// cross-device auto-sync backend:
+// - Prefer Supabase when VITE_SUPABASE_URL + VITE_SUPABASE_PUBLISHABLE_KEY are present.
+// - Fall back to the existing Render-backed JSON endpoint if Supabase is not configured.
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+const SUPABASE_TABLE = import.meta.env.VITE_SUPABASE_TABLE || "jlpt_sync_state";
+const USE_SUPABASE = !!(SUPABASE_URL && SUPABASE_KEY);
 const CLOUD_URL = "https://jlpt-sync.onrender.com";
 const CLOUD_ROOM = "default";
 
@@ -1178,14 +1184,38 @@ export default function JlptN5Srs() {
     if (!syncOn) return;
     try {
       setSyncState("syncing");
-      const r = await fetch(CLOUD_URL + "/api/state?room=" + CLOUD_ROOM, { cache: "no-store" });
-      const j = await r.json();
-      if (j && j.data && Number(j.ts) > syncTsRef.current) {
-        lastPushedJsonRef.current = JSON.stringify(j.data);
-        applyRemote(j.data);
-        const ts = Number(j.ts);
-        syncTsRef.current = ts;
-        setSyncTs(ts);
+      if (USE_SUPABASE) {
+        const r = await fetch(
+          `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}?room=eq.${encodeURIComponent(CLOUD_ROOM)}&select=room,ts,data&limit=1`,
+          {
+            cache: "no-store",
+            headers: {
+              apikey: SUPABASE_KEY,
+              Authorization: `Bearer ${SUPABASE_KEY}`,
+              Accept: "application/json",
+            },
+          }
+        );
+        if (!r.ok) throw new Error("supabase pull failed");
+        const rows = await r.json();
+        const row = Array.isArray(rows) ? rows[0] : null;
+        if (row && row.data && Number(row.ts) > syncTsRef.current) {
+          lastPushedJsonRef.current = JSON.stringify(row.data);
+          applyRemote(row.data);
+          const ts = Number(row.ts);
+          syncTsRef.current = ts;
+          setSyncTs(ts);
+        }
+      } else {
+        const r = await fetch(CLOUD_URL + "/api/state?room=" + CLOUD_ROOM, { cache: "no-store" });
+        const j = await r.json();
+        if (j && j.data && Number(j.ts) > syncTsRef.current) {
+          lastPushedJsonRef.current = JSON.stringify(j.data);
+          applyRemote(j.data);
+          const ts = Number(j.ts);
+          syncTsRef.current = ts;
+          setSyncTs(ts);
+        }
       }
       setSyncState("ok");
     } catch (e) {
@@ -1198,12 +1228,30 @@ export default function JlptN5Srs() {
     if (!syncOn) return;
     try {
       setSyncState("syncing");
-      const r = await fetch(CLOUD_URL + "/api/state?room=" + CLOUD_ROOM, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ts, data: blob }),
-      });
-      await r.json();
+      if (USE_SUPABASE) {
+        const r = await fetch(
+          `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}?on_conflict=room`,
+          {
+            method: "POST",
+            headers: {
+              apikey: SUPABASE_KEY,
+              Authorization: `Bearer ${SUPABASE_KEY}`,
+              "Content-Type": "application/json",
+              Prefer: "resolution=merge-duplicates,return=representation",
+            },
+            body: JSON.stringify({ room: CLOUD_ROOM, ts, data: blob }),
+          }
+        );
+        if (!r.ok) throw new Error("supabase push failed");
+        await r.json();
+      } else {
+        const r = await fetch(CLOUD_URL + "/api/state?room=" + CLOUD_ROOM, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ts, data: blob }),
+        });
+        await r.json();
+      }
       lastPushedJsonRef.current = json;
       setSyncState("ok");
     } catch (e) {
