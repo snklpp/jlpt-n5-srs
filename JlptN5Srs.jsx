@@ -89,7 +89,71 @@ const GENKI_LESSON_1 = [
   ["おとうと", "otooto", "younger brother", "弟"],
 ];
 
-const GENKI_DECK = [{ name: "Lesson 6", level: "Genki", cards: GENKI_LESSON_1.map(([kana, romaji, meaning, kanji]) => ({ kana, romaji, meaning, ...(kanji ? { kanji } : {}) })) }];
+const GENKI_LESSON_5 = [
+  // Nouns
+  ["たべもの", "tabemono", "food", "食べ物"],
+  ["のみもの", "nomimono", "drink", "飲み物"],
+  ["くだもの", "kudamono", "fruit", "果物"],
+  ["やすみ", "yasumi", "holiday; day off; absence", "休み"],
+  ["りょこう", "ryokou", "travel", "旅行"],
+  ["うみ", "umi", "sea", "海"],
+  ["サーフィン", "saafin", "surfing"],
+  ["おみやげ", "omiyage", "souvenir", "お土産"],
+  ["バス", "basu", "bus"],
+  ["てんき", "tenki", "weather", "天気"],
+  ["しゅくだい", "shukudai", "homework", "宿題"],
+  ["テスト", "tesuto", "test"],
+  ["たんじょうび", "tanjoubi", "birthday", "誕生日"],
+  ["へや", "heya", "room", "部屋"],
+  ["ぼく", "boku", "I (used by men)", "僕"],
+  ["Lサイズ（エルサイズ）", "eru saizu", "size L"],
+  // i-adjectives
+  ["あたらしい", "atarashii", "new", "新しい"],
+  ["ふるい", "furui", "old (thing-not used for people)", "古い"],
+  ["あつい", "atsui", "hot (weather)", "暑い"],
+  ["さむい", "samui", "cold (weather-not used for things)", "寒い"],
+  ["あつい", "atsui", "hot (thing)", "熱い"],
+  ["いそがしい", "isogashii", "busy (people/days)", "忙しい"],
+  ["おおきい", "ookii", "large", "大きい"],
+  ["ちいさい", "chiisai", "small", "小さい"],
+  ["おもしろい", "omoshiroi", "interesting; funny", "面白い"],
+  ["つまらない", "tsumaranai", "boring"],
+  ["やさしい", "yasashii", "easy (problem); kind (person)"],
+  ["むずかしい", "muzukashii", "difficult", "難しい"],
+  ["かっこいい", "kakkoii", "good-looking (conjugates like いい)"],
+  ["こわい", "kowai", "frightening", "怖い"],
+  ["たのしい", "tanoshii", "fun", "楽しい"],
+  ["やすい", "yasui", "inexpensive; cheap (thing)", "安い"],
+  // na-adjectives
+  ["すき（な）", "suki (na)", "fond of; to like（〜が）", "好き"],
+  ["きらい（な）", "kirai (na)", "disgusted with; to dislike（〜が）", "嫌い"],
+  ["だいすき（な）", "daisuki (na)", "very fond of; to love（〜が）", "大好き"],
+  ["だいきらい（な）", "daikirai (na)", "to hate（〜が）", "大嫌い"],
+  ["きれい（な）", "kirei (na)", "beautiful; clean"],
+  ["げんき（な）", "genki (na)", "healthy; energetic", "元気"],
+  ["しずか（な）", "shizuka (na)", "quiet", "静か"],
+  ["にぎやか（な）", "nigiyaka (na)", "lively"],
+  ["ひま（な）", "hima (na)", "not busy; free (time)", "暇"],
+  // U-verbs
+  ["およぐ", "oyogu", "to swim", "泳ぐ"],
+  ["きく", "kiku", "to ask（*person* に）", "聞く"],
+  ["のる", "noru", "to ride; to board（〜に）", "乗る"],
+  ["やる", "yaru", "to do; to perform（〜を）"],
+  // Ru-verb
+  ["でかける", "dekakeru", "to go out", "出かける"],
+  // Adverbs and Other Expressions
+  ["いっしょに", "issho ni", "together", "一緒に"],
+  ["すごく", "sugoku", "extremely"],
+  ["だいじょうぶ", "daijoubu", "It's okay.; Not to worry.; Everything is under control.", "大丈夫"],
+  ["とても", "totemo", "very"],
+  ["どんな", "donna", "what kind of..."],
+  ["〜まい", "〜mai", "[counter for flat objects]", "〜枚"],
+];
+
+const GENKI_DECK = [
+  { name: "Lesson 1", level: "Genki", cards: GENKI_LESSON_1.map(([kana, romaji, meaning, kanji]) => ({ kana, romaji, meaning, ...(kanji ? { kanji } : {}) })) },
+  { name: "Lesson 5", level: "Genki", cards: GENKI_LESSON_5.map(([kana, romaji, meaning, kanji]) => ({ kana, romaji, meaning, ...(kanji ? { kanji } : {}) })) },
+];
 
 /* ----- flatten deck into addressable cards ----- */
 const SECTIONS = DECK.map((s) => s.name);
@@ -954,7 +1018,7 @@ export default function JlptN5Srs() {
         : scope.type === "merged"
         ? (scope.mg === -1 ? MERGED.flatMap((g) => g.ids) : MERGED[scope.mg].ids).map((id) => CARD_BY_ID[id])
         : scope.type === "genki"
-        ? GENKI_CARDS
+        ? (scope.gi == null ? GENKI_CARDS : GENKI_CARDS.filter((c) => c.si === scope.gi))
         : CARDS.filter((c) => c.si === scope.si);
     // "freq" mode orders cards by corpus frequency (most common first) so the highest-value
     // words are introduced/seen first. Applies to study AND revision.
@@ -1712,7 +1776,7 @@ export default function JlptN5Srs() {
                   </span>
                 </Ring>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: FJP, fontSize: 10.5, letterSpacing: 2.5, color: C.faint }}>GENKI · LESSON 6</div>
+                  <div style={{ fontFamily: FJP, fontSize: 10.5, letterSpacing: 2.5, color: C.faint }}>GENKI</div>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 4 }}>
                     <span style={{ fontFamily: FDISP, fontWeight: 900, fontSize: 27, color: C.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
                       {genkiTotalSeen}
@@ -1720,16 +1784,16 @@ export default function JlptN5Srs() {
                     <span style={{ fontFamily: FJP, fontSize: 12.5, color: C.sub }}>/ {genkiTotalCards} learned</span>
                   </div>
                   <div style={{ fontFamily: FJP, fontSize: 12, color: C.sub, marginTop: 4 }}>
-                    Lesson 6 vocabulary set
+                    Genki vocabulary set
                   </div>
                 </div>
               </div>
             </div>
             <button onClick={() => startStudy({ type: "genki" })} className="n5press n5lift n5stagger" style={{ ...allCardBtn, animationDelay: ".05s" }}>
               <div>
-                <div style={{ fontFamily: FDISP, fontWeight: 800, fontSize: 18, color: INK_GOLD }}>Study lesson 6</div>
+                <div style={{ fontFamily: FDISP, fontWeight: 800, fontSize: 18, color: INK_GOLD }}>Study Genki</div>
                 <div style={{ fontSize: 12.5, color: "rgba(42,28,6,0.68)", marginTop: 3, fontFamily: FJP }}>
-                  All {genkiTotalCards} words · Lesson 6
+                  All {genkiTotalCards} words · both lessons
                 </div>
               </div>
               <div style={{ display: "flex", gap: 6 }}>
@@ -1738,7 +1802,7 @@ export default function JlptN5Srs() {
               </div>
             </button>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "20px 4px 11px" }}>
-              <span style={{ fontSize: 10.5, letterSpacing: 2, color: C.faint, fontFamily: FJP }}>LESSON 6 · {genkiTotalCards} WORDS</span>
+              <span style={{ fontSize: 10.5, letterSpacing: 2, color: C.faint, fontFamily: FJP }}>LESSONS 1 & 5 · {genkiTotalCards} WORDS</span>
             </div>
             {GENKI_DECK.map((s, si) => {
               const hs = genkiHomeStats[si];
@@ -1747,7 +1811,7 @@ export default function JlptN5Srs() {
               const mastered = hs.total > 0 && hs.mature === hs.total;
               const restful = !mastered && newShow === 0 && hs.due === 0 && hs.seen > 0;
               return (
-                <button key={si} onClick={() => startStudy({ type: "genki" })} className="n5press n5lift" style={secBtn}>
+                <button key={si} onClick={() => startStudy({ type: "genki", gi: si })} className="n5press n5lift" style={secBtn}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontFamily: FJP, fontWeight: 700, fontSize: 15, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {s.name}
@@ -1910,7 +1974,9 @@ export default function JlptN5Srs() {
               : scope.type === "merged"
               ? scope.mg === -1 ? "Revise everything" : MERGED[scope.mg].name
               : scope.type === "genki"
-              ? "Genki · Lesson 6"
+              ? scope.gi == null
+                ? "Genki"
+                : "Genki · " + GENKI_SECTIONS[scope.gi]
               : SECTIONS[scope.si]}
           </div>
         </div>
@@ -2273,7 +2339,7 @@ export default function JlptN5Srs() {
               ) : scope.type === "level" ? (
                 <>Every {scope.level} card has been introduced. 🎉</>
               ) : scope.type === "genki" ? (
-                <>Every Genki lesson 6 card has been introduced. 🎉</>
+                <>Every {scope.gi == null ? "Genki" : GENKI_SECTIONS[scope.gi]} card has been introduced. 🎉</>
               ) : (
                 <>This section is fully introduced.</>
               )}
