@@ -150,9 +150,66 @@ const GENKI_LESSON_5 = [
   ["〜まい", "〜mai", "[counter for flat objects]", "〜枚"],
 ];
 
+const GENKI_LESSON_6 = [
+  // Nouns
+  ["かんじ", "kanji", "kanji; Chinese character", "漢字"],
+  ["きょうかしょ", "kyoukasho", "textbook", "教科書"],
+  ["ページ", "peeji", "page"],
+  ["つぎ", "tsugi", "next", "次"],
+  ["おかね", "okane", "money", "お金"],
+  ["にもつ", "nimotsu", "baggage", "荷物"],
+  ["パソコン", "pasokon", "personal computer"],
+  ["シャワー", "shawaa", "shower"],
+  ["エアコン", "eakon", "air conditioner"],
+  ["でんき", "denki", "electricity; light", "電気"],
+  ["まど", "mado", "window", "窓"],
+  ["でんしゃ", "densha", "train", "電車"],
+  ["くに", "kuni", "country; place of origin", "国"],
+  ["こんしゅう", "konshuu", "this week", "今週"],
+  ["らいしゅう", "raishuu", "next week", "来週"],
+  ["らいねん", "rainen", "next year", "来年"],
+  ["よる", "yoru", "night", "夜"],
+  // na-adjective
+  ["たいへん（な）", "taihen (na)", "tough (situation)", "大変"],
+  // U-verbs
+  ["あそぶ", "asobu", "to play; to spend time pleasantly", "遊ぶ"],
+  ["いそぐ", "isogu", "to hurry", "急ぐ"],
+  ["かえす", "kaesu", "to return (a thing) (*person* に *thing* を)", "返す"],
+  ["けす", "kesu", "to turn off; to erase（〜を）", "消す"],
+  ["しぬ", "shinu", "to die", "死ぬ"],
+  ["すわる", "suwaru", "to sit down（*seat* に）", "座る"],
+  ["たつ", "tatsu", "to stand up", "立つ"],
+  ["たばこをすう", "tabako o suu", "to smoke", "たばこを吸う"],
+  ["つかう", "tsukau", "to use（〜を）", "使う"],
+  ["てつだう", "tetsudau", "to help（*person/task* を）", "手伝う"],
+  ["はいる", "hairu", "to enter（〜に）", "入る"],
+  ["もつ", "motsu", "to carry; to hold（〜を）", "持つ"],
+  ["やすむ", "yasumu", "(1) to be absent (from...)（〜を）; (2) to rest", "休む"],
+  // Ru-verbs
+  ["あける", "akeru", "to open (something)（〜を）", "開ける"],
+  ["しめる", "shimeru", "to close (something)（〜を）", "閉める"],
+  ["おしえる", "oshieru", "to teach; to instruct (*person* に *thing* を)", "教える"],
+  ["わすれる", "wasureru", "to forget; to leave behind（〜を）", "忘れる"],
+  ["おりる", "oriru", "to get off（〜を）", "降りる"],
+  ["かりる", "kariru", "to borrow (*person* に *thing* を)", "借りる"],
+  ["シャワーをあびる", "shawaa o abiru", "to take a shower", "シャワーを浴びる"],
+  ["つける", "tsukeru", "to turn on（〜を）"],
+  // Irregular verbs
+  ["でんわする", "denwa suru", "to call（〜に）", "電話する"],
+  ["つれてくる", "tsurete kuru", "to bring (a person)（〜を）", "連れてくる"],
+  ["もってくる", "motte kuru", "to bring (a thing)（〜を）", "持ってくる"],
+  // Adverbs and other expressions
+  ["あとで", "ato de", "later on", "後で"],
+  ["すぐ", "sugu", "right away"],
+  ["ゆっくり", "yukkuri", "slowly; leisurely; unhurriedly"],
+  ["けっこうです", "kekkou desu", "That would be fine.; That wouldn't be necessary.", "結構です"],
+  ["ほんとうですか", "hontou desu ka", "Really?", "本当ですか"],
+];
+
 const GENKI_DECK = [
   { name: "Lesson 1", level: "Genki", cards: GENKI_LESSON_1.map(([kana, romaji, meaning, kanji]) => ({ kana, romaji, meaning, ...(kanji ? { kanji } : {}) })) },
   { name: "Lesson 5", level: "Genki", cards: GENKI_LESSON_5.map(([kana, romaji, meaning, kanji]) => ({ kana, romaji, meaning, ...(kanji ? { kanji } : {}) })) },
+  { name: "Lesson 6", level: "Genki", cards: GENKI_LESSON_6.map(([kana, romaji, meaning, kanji]) => ({ kana, romaji, meaning, ...(kanji ? { kanji } : {}) })) },
 ];
 
 /* ----- flatten deck into addressable cards ----- */
