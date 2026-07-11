@@ -150,6 +150,79 @@ const GENKI_LESSON_5 = [
   ["〜まい", "〜mai", "[counter for flat objects]", "〜枚"],
 ];
 
+const GENKI_LESSON_4 = [
+  // Nouns - Activities
+  ["ゲーム", "geemu", "game"],
+  ["アルバイト", "arubaito", "part-time job (more colloquially, バイト)"],
+  ["かいもの", "kaimono", "shopping", "買い物"],
+  ["クラス", "kurasu", "class"],
+  // Nouns - People and Things
+  ["いぬ", "inu", "dog", "犬"],
+  ["ねこ", "neko", "cat", "猫"],
+  ["ひと", "hito", "person", "人"],
+  ["こども", "kodomo", "child", "子供"],
+  ["あなた", "anata", "you"],
+  ["いす", "isu", "chair"],
+  ["つくえ", "tsukue", "desk", "机"],
+  ["しゃしん", "shashin", "picture; photograph", "写真"],
+  ["はな", "hana", "flower", "花"],
+  ["レポート", "repooto", "(term) paper"],
+  ["ごはん", "gohan", "rice; meal", "ご飯"],
+  ["パン", "pan", "bread"],
+  // Nouns - Places
+  ["おてら", "otera", "temple", "お寺"],
+  ["こうえん", "kouen", "park", "公園"],
+  ["スーパー", "suupaa", "supermarket"],
+  ["バスてい", "basutei", "bus stop", "バス停"],
+  ["びょういん", "byouin", "hospital", "病院"],
+  ["ホテル", "hoteru", "hotel"],
+  ["ほんや", "honya", "bookstore", "本屋"],
+  ["まち", "machi", "town; city", "町"],
+  ["レストラン", "resutoran", "restaurant"],
+  // Nouns - Time
+  ["きのう", "kinou", "yesterday", "昨日"],
+  ["〜じかん", "...jikan", "...hours", "〜時間"],
+  ["いちじかん", "ichijikan", "one hour", "一時間"],
+  ["せんしゅう", "senshuu", "last week", "先週"],
+  ["とき", "toki", "when...; at the time of...（〜の）", "時"],
+  ["げつようび", "getsuyoubi", "Monday", "月曜日"],
+  ["かようび", "kayoubi", "Tuesday", "火曜日"],
+  ["すいようび", "suiyoubi", "Wednesday", "水曜日"],
+  ["もくようび", "mokuyoubi", "Thursday", "木曜日"],
+  ["きんようび", "kinyoubi", "Friday", "金曜日"],
+  // U-verbs
+  ["あう", "au", "to meet; to see (a person)（*person* に）", "会う"],
+  ["ある", "aru", "there is...（*place* に *thing* が）"],
+  ["かう", "kau", "to buy（〜を）", "買う"],
+  ["かく", "kaku", "to write（*person* に *thing* を）", "書く"],
+  ["とる", "toru", "to take (a picture)（〜を）", "撮る"],
+  ["まつ", "matsu", "to wait（〜を）", "待つ"],
+  ["わかる", "wakaru", "to understand（〜が）"],
+  // Ru-verbs
+  ["いる", "iru", "(a person) is in...; stays at...（*place* に *person* が）"],
+  // Adverbs and Other Expressions
+  ["〜ぐらい", "...gurai", "about (approximate measurement)"],
+  ["ごめんなさい", "gomen nasai", "I'm sorry."],
+  ["それから", "sorekara", "and then"],
+  ["だから", "dakara", "so; therefore"],
+  ["たくさん", "takusan", "many; a lot"],
+  ["〜と", "...to", "together with (a person); and"],
+  ["どうして", "doushite", "why"],
+  ["ひとりで", "hitori de", "alone", "一人で"],
+  ["もしもし", "moshimoshi", "Hello? (used on the phone)"],
+  // Location words
+  ["みぎ", "migi", "right（〜の）", "右"],
+  ["ひだり", "hidari", "left（〜の）", "左"],
+  ["まえ", "mae", "front（〜の）", "前"],
+  ["うしろ", "ushiro", "back（〜の）", "後ろ"],
+  ["なか", "naka", "inside（〜の）", "中"],
+  ["うえ", "ue", "on（〜の）", "上"],
+  ["した", "shita", "under（〜の）", "下"],
+  ["ちかく", "chikaku", "near; nearby（〜の）", "近く"],
+  ["となり", "tonari", "next（〜の）", "隣"],
+  ["あいだ", "aida", "between（A と B の）", "間"],
+];
+
 const GENKI_LESSON_6 = [
   // Nouns
   ["かんじ", "kanji", "kanji; Chinese character", "漢字"],
@@ -208,6 +281,7 @@ const GENKI_LESSON_6 = [
 
 const GENKI_DECK = [
   { name: "Lesson 1", level: "Genki", cards: GENKI_LESSON_1.map(([kana, romaji, meaning, kanji]) => ({ kana, romaji, meaning, ...(kanji ? { kanji } : {}) })) },
+  { name: "Lesson 4", level: "Genki", cards: GENKI_LESSON_4.map(([kana, romaji, meaning, kanji]) => ({ kana, romaji, meaning, ...(kanji ? { kanji } : {}) })) },
   { name: "Lesson 5", level: "Genki", cards: GENKI_LESSON_5.map(([kana, romaji, meaning, kanji]) => ({ kana, romaji, meaning, ...(kanji ? { kanji } : {}) })) },
   { name: "Lesson 6", level: "Genki", cards: GENKI_LESSON_6.map(([kana, romaji, meaning, kanji]) => ({ kana, romaji, meaning, ...(kanji ? { kanji } : {}) })) },
 ];
